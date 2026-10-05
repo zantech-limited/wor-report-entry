@@ -1,0 +1,33 @@
+import assert from "node:assert/strict";
+import { blankLine } from "../src/lib/model";
+import { readFileSync } from "node:fs";
+import { writeWorkbook } from "../src/lib/excel";
+async function main() {
+  assert(process.env.DATA_DIR?.includes(".checks"));
+  const {database} = await import('../src/lib/storage');
+  const {createBlankReport,saveReport,importWorkbook} = await import('../src/lib/db');
+  const {listParts,savePart} = await import('../src/lib/parts');
+  const report = await createBlankReport();
+  report.lines = [{...blankLine('1'),wor:'16241',partNo:'GPR-58\nP2',description:'Black Drum Unit\nSecond part',qty:'1\n2'}];
+  await saveReport(report.id,report);
+  let parts = await listParts();
+  assert.equal(parts.find(p=>p.partNo==='GPR-58')?.description,'Black Drum Unit');
+  assert.equal(parts.find(p=>p.partNo==='P2')?.defaultQty,'1');
+  await savePart({partNo:'GPR-58',description:'Curated drum',defaultQty:'3',active:false});
+  await saveReport(report.id,report);
+  parts=await listParts(true);
+  assert.equal(parts.find(p=>p.partNo==='GPR-58')?.description,'Curated drum');
+  assert.equal(parts.find(p=>p.partNo==='GPR-58')?.active,false);
+  const db=await database();
+  const legacy=await createBlankReport();
+  legacy.lines=[{...blankLine('1'),partNo:'LEGACY',description:'Existing saved part',qty:'1'}];
+  await db.query('UPDATE reports SET lines = ? WHERE id = ?',[JSON.stringify(legacy.lines),legacy.id]);
+  await db.query("DELETE FROM meta WHERE key = 'parts-from-reports-v1'");
+  assert((await listParts()).some(p=>p.partNo==='LEGACY'));
+  const workbookReport={...report,lines:[{...blankLine('1'),partNo:'IMPORTED',description:'Workbook part',qty:'4'}]};
+  await importWorkbook(await writeWorkbook(readFileSync('templates/monthly-service-report.xlsm'),workbookReport),'parts-test.xlsm');
+  assert.equal((await listParts()).find(p=>p.partNo==='IMPORTED')?.defaultQty,'1');
+  console.log('parts learning passed: saved multiline parts, historical backfill, manual edits and archive preserved');
+  await db.close();
+}
+main().catch(e=>{console.error(e);process.exit(1)});

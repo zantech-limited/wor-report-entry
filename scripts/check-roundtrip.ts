@@ -44,6 +44,9 @@ const report: Report = {
       arrivalTime: "09:15",
       departureTime: "10:45",
       partsRequired: "No",
+      partNo: "PART-001\nPART-002",
+      description: "First part\nSecond part",
+      qty: "1\n2",
       paymentMethod: "Cash",
       revenue: "350",
       jobStatus: "Completed",
@@ -74,6 +77,9 @@ assert(again.lines[0]?.customer === "Harbour Books", again.lines[0]?.customer ??
 assert(again.lines[0]?.location === "San Juan", again.lines[0]?.location ?? "");
 assert(again.lines[0]?.technician === "Reggie", again.lines[0]?.technician ?? "");
 assert(again.lines[0]?.secondaryTech === "Andre", again.lines[0]?.secondaryTech ?? "");
+assert(again.lines[0]?.partNo === "PART-001\nPART-002", "multiline part numbers changed");
+assert(again.lines[0]?.description === "First part\nSecond part", "multiline descriptions changed");
+assert(again.lines[0]?.qty === "1\n2", "multiline quantities changed");
 assert(again.lines[0]?.modelNo === "IR ADV DX 4845i", again.lines[0]?.modelNo ?? "");
 assert(again.prefixMap.some((entry) => entry.prefix === "ZZZ"), "new prefix");
 assert(again.prefixMap.length === 149, `prefix length ${again.prefixMap.length}`);

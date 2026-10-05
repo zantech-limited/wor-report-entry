@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { MonthActions } from "@/components/month-actions";
 import { SuggestInput } from "@/components/suggest-input";
+import { PartsInput } from "@/components/parts-input";
+import { DuplicateNotice } from "@/components/duplicate-notice";
+import type { Part } from "@/lib/parts-model";
+import { Check, CircleAlert, Download, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -56,11 +60,13 @@ export function ReportEditor({
   initialSuggestions,
   initialIndex = 0,
   months = [],
+  initialParts = [],
 }: {
   initial: Report;
   initialSuggestions: Suggestions;
   initialIndex?: number;
   months?: ReportSummary[];
+  initialParts?: Part[];
 }) {
   const router = useRouter();
   const [report, setReport] = useState(initial);
@@ -68,7 +74,10 @@ export function ReportEditor({
   const [index, setIndex] = useState(initialIndex);
   const [status, setStatus] = useState<SaveStatus>("saved");
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState<{ prefix: string; model: string } | null>(null);
+  const [prompt, setPrompt] = useState<{
+    prefix: string;
+    model: string;
+  } | null>(null);
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [addedCount, setAddedCount] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -78,7 +87,7 @@ export function ReportEditor({
   const suggestionsRef = useRef(suggestions);
   const indexRef = useRef(index);
   const dirty = useRef(false);
-  const inFlight = useRef(false);
+  const inFlight = useRef<Promise<boolean> | null>(null);
   const timer = useRef<number | null>(null);
   const noRef = useRef<HTMLInputElement>(null);
   const customerAtFocus = useRef("");
@@ -109,6 +118,51 @@ export function ReportEditor({
   }, [index]);
 
   useEffect(() => {
+    const guard = (event: BeforeUnloadEvent) => {
+      if (!dirty.current && !inFlight.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => {
+      window.removeEventListener("beforeunload", guard);
+      if (timer.current) window.clearTimeout(timer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const followLink = (event: MouseEvent) => {
+      if (!dirty.current && !inFlight.current) return;
+      const anchor = (event.target as Element).closest?.("a");
+      if (
+        !anchor ||
+        anchor.target ||
+        anchor.hasAttribute("download") ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.altKey ||
+        event.button !== 0
+      )
+        return;
+      const url = new URL(anchor.href, location.href);
+      if (
+        url.origin !== location.origin ||
+        (url.pathname === location.pathname && url.search === location.search)
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      void persist().then((saved) => {
+        if (saved) router.push(url.pathname + url.search + url.hash);
+      });
+    };
+    document.addEventListener("click", followLink, true);
+    return () => document.removeEventListener("click", followLink, true);
+    // persist reads the current report through refs.
+  }, [router]);
+
+  useEffect(() => {
     function onKey(event: KeyboardEvent) {
       const key = event.key.toLowerCase();
       if ((event.metaKey || event.ctrlKey) && key === "s") {
@@ -117,7 +171,12 @@ export function ReportEditor({
       } else if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
         void saveAndNext();
-      } else if (event.altKey && key === "n" && !event.metaKey && !event.ctrlKey) {
+      } else if (
+        event.altKey &&
+        key === "n" &&
+        !event.metaKey &&
+        !event.ctrlKey
+      ) {
         event.preventDefault();
         addLine();
       } else if (event.altKey && event.key === "ArrowDown") {
@@ -148,39 +207,48 @@ export function ReportEditor({
       window.clearTimeout(timer.current);
       timer.current = null;
     }
-    if (inFlight.current) {
-      dirty.current = true;
-      return false;
-    }
-    if (!dirty.current && status !== "unsaved") return true;
-    inFlight.current = true;
-    dirty.current = false;
-    setStatus("saving");
-    setSaveError(null);
-    const snapshot = latest.current;
-    try {
-      const response = await fetch(`/api/reports/${snapshot.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(snapshot),
-      });
-      const body = (await response.json()) as { error?: string; suggestions?: Suggestions };
-      if (!response.ok || !body.suggestions) {
-        throw new Error(body.error || "The report could not be saved.");
+    if (inFlight.current) return inFlight.current;
+    if (!dirty.current) return true;
+    const job = (async () => {
+      while (dirty.current) {
+        dirty.current = false;
+        setStatus("saving");
+        setSaveError(null);
+        const snapshot = latest.current;
+        try {
+          const response = await fetch(`/api/reports/${snapshot.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(snapshot),
+          });
+          const body = (await response.json()) as {
+            error?: string;
+            suggestions?: Suggestions;
+          };
+          if (!response.ok || !body.suggestions) {
+            throw new Error(body.error || "The report could not be saved.");
+          }
+          setSuggestions(body.suggestions);
+          if (!dirty.current) setStatus("saved");
+        } catch (cause) {
+          const message =
+            cause instanceof Error
+              ? cause.message
+              : "The report could not be saved.";
+          setSaveError(message);
+          setStatus("error");
+          dirty.current = true;
+          toast.error(message);
+          return false;
+        }
       }
-      setSuggestions(body.suggestions);
-      setStatus("saved");
       return true;
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "The report could not be saved.";
-      setSaveError(message);
-      setStatus("error");
-      dirty.current = true;
-      toast.error(message);
-      return false;
+    })();
+    inFlight.current = job;
+    try {
+      return await job;
     } finally {
-      inFlight.current = false;
-      if (dirty.current) void persist();
+      inFlight.current = null;
     }
   }
 
@@ -197,7 +265,10 @@ export function ReportEditor({
 
   function move(delta: number) {
     setIndex((current) => {
-      const next = Math.min(Math.max(current + delta, 0), Math.max(latest.current.lines.length - 1, 0));
+      const next = Math.min(
+        Math.max(current + delta, 0),
+        Math.max(latest.current.lines.length - 1, 0),
+      );
       if (next !== current) setFocusLine(true);
       return next;
     });
@@ -216,7 +287,9 @@ export function ReportEditor({
 
   function removeLine() {
     setReport((current) => {
-      const lines = current.lines.filter((_, lineIndex) => lineIndex !== indexRef.current);
+      const lines = current.lines.filter(
+        (_, lineIndex) => lineIndex !== indexRef.current,
+      );
       return { ...current, lines };
     });
     setIndex((current) => Math.max(0, current - 1));
@@ -247,16 +320,29 @@ export function ReportEditor({
       const lines = current.lines.slice();
       const currentLine = lines[indexRef.current];
       if (!currentLine) return current;
-      const machine = matchMachine(currentLine.customer, value, suggestionsRef.current);
+      const machine = matchMachine(
+        currentLine.customer,
+        value,
+        suggestionsRef.current,
+      );
       const serial = force && machine ? machine.serialNo : value;
       const next = { ...currentLine, serialNo: serial };
       const prefix = prefixOf(serial);
       const previous = prefixOf(serialAtEdit.current);
-      const prefixChanged = prefix.length >= 3 && prefix.toLowerCase() !== previous.toLowerCase();
+      const prefixChanged =
+        prefix.length >= 3 && prefix.toLowerCase() !== previous.toLowerCase();
       if (prefix.length < 3) serialAtEdit.current = serial;
-      const model = modelForSerial(serial, current.prefixMap, machine?.modelNo ?? "");
+      const model = modelForSerial(
+        serial,
+        current.prefixMap,
+        machine?.modelNo ?? "",
+      );
       if (force || canReplaceModel(currentLine.modelNo)) {
-        if (machine || prefixChanged || (model && !currentLine.modelNo.trim())) {
+        if (
+          machine ||
+          prefixChanged ||
+          (model && !currentLine.modelNo.trim())
+        ) {
           if (model) {
             next.modelNo = model;
             autofill.current.model = model;
@@ -267,7 +353,10 @@ export function ReportEditor({
         }
       }
       if (prefix.length >= 3) serialAtEdit.current = serial;
-      if (machine?.location && (force || (!locationTouched.current && !currentLine.location.trim()))) {
+      if (
+        machine?.location &&
+        (force || (!locationTouched.current && !currentLine.location.trim()))
+      ) {
         next.location = machine.location;
         autofill.current.location = machine.location;
       }
@@ -305,7 +394,10 @@ export function ReportEditor({
     if (!prompt) return;
     setReport((current) => ({
       ...current,
-      prefixMap: [...current.prefixMap, { prefix: prompt.prefix, model: prompt.model }],
+      prefixMap: [
+        ...current.prefixMap,
+        { prefix: prompt.prefix, model: prompt.model },
+      ],
     }));
     setPrompt(null);
     scheduleSave();
@@ -319,13 +411,24 @@ export function ReportEditor({
       const prefix = prefixOf(workOrder.serialNo);
       const model = workOrder.modelNo.trim();
       if (prefix.length < 3 || !model || model === "Unknown Model") continue;
-      const existing = map.find((entry) => entry.prefix.toLowerCase() === prefix.toLowerCase());
+      const existing = map.find(
+        (entry) => entry.prefix.toLowerCase() === prefix.toLowerCase(),
+      );
       if (!existing) {
         map.push({ prefix, model });
         added += 1;
       } else if (existing.model.toLowerCase() !== model.toLowerCase()) {
-        if (!found.some((item) => item.prefix === existing.prefix && item.incoming === model)) {
-          found.push({ prefix: existing.prefix, existing: existing.model, incoming: model });
+        if (
+          !found.some(
+            (item) =>
+              item.prefix === existing.prefix && item.incoming === model,
+          )
+        ) {
+          found.push({
+            prefix: existing.prefix,
+            existing: existing.model,
+            incoming: model,
+          });
         }
       }
     }
@@ -358,7 +461,9 @@ export function ReportEditor({
   }
 
   async function removeReport() {
-    const response = await fetch(`/api/reports/${report.id}`, { method: "DELETE" });
+    const response = await fetch(`/api/reports/${report.id}`, {
+      method: "DELETE",
+    });
     if (!response.ok) {
       toast.error("Could not delete this report.");
       return;
@@ -377,13 +482,17 @@ export function ReportEditor({
           ? "No saved site for this customer yet. Type one and it will be remembered with them."
           : "Choose a customer first. The site list stays limited to that customer.";
 
-  const hours = line ? timeTakenHours(line.arrivalTime, line.departureTime) : null;
+  const hours = line
+    ? timeTakenHours(line.arrivalTime, line.departureTime)
+    : null;
 
   const machines = line ? machinesFor(line.customer, suggestions) : [];
   const machineOptions = machines.map((machine) => ({
     value: machine.serialNo,
     label: machine.serialNo,
-    description: [machine.modelNo, machine.location].filter(Boolean).join(" · "),
+    description: [machine.modelNo, machine.location]
+      .filter(Boolean)
+      .join(" · "),
   }));
   const machineHint = !line?.customer.trim()
     ? "Choose a customer first. Machines stay limited to that customer."
@@ -393,10 +502,13 @@ export function ReportEditor({
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
-      <a href="#work-order" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-40 focus:rounded-md focus:bg-background focus:px-3 focus:py-2">
+      <a
+        href="#work-order"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-40 focus:rounded-md focus:bg-background focus:px-3 focus:py-2"
+      >
         Skip to work order
       </a>
-      <header className="flex flex-col gap-4">
+      <header className="flex flex-col gap-5 rounded-xl border bg-card p-4 shadow-sm sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Entry</h1>
@@ -406,16 +518,43 @@ export function ReportEditor({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-muted-foreground" aria-live="polite">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium",
+                status === "error"
+                  ? "border-destructive/30 bg-destructive/10 text-destructive"
+                  : "bg-muted text-muted-foreground",
+              )}
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {status === "saved" && (
+                <Check className="size-3.5" aria-hidden="true" />
+              )}
+              {status === "saving" && (
+                <LoaderCircle
+                  className="size-3.5 animate-spin"
+                  aria-hidden="true"
+                />
+              )}
+              {(status === "error" || status === "unsaved") && (
+                <CircleAlert className="size-3.5" aria-hidden="true" />
+              )}
               {status === "saving" && "Saving…"}
               {status === "saved" && "Saved"}
               {status === "unsaved" && "Unsaved changes"}
               {status === "error" && "Not saved"}
             </span>
-            <Button type="button" variant="outline" onClick={() => void download()}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void download()}
+            >
+              <Download aria-hidden="true" />
               Export workbook
             </Button>
-            <MonthActions quiet />
+            <MonthActions quiet beforeLeave={persist} />
           </div>
         </div>
         {months.length > 1 && (
@@ -428,14 +567,16 @@ export function ReportEditor({
               onChange={(event) => {
                 const next = event.target.value;
                 void (async () => {
-                  if (dirty.current) await persist();
+                  if ((dirty.current || inFlight.current) && !(await persist()))
+                    return;
                   router.push(`/?report=${next}`);
                 })();
               }}
             >
               {months.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.monthLabel} · {item.preparedBy || "No preparer"} · {item.lineCount} orders
+                  {item.monthLabel} · {item.preparedBy || "No preparer"} ·{" "}
+                  {item.lineCount} orders
                 </option>
               ))}
             </select>
@@ -449,7 +590,10 @@ export function ReportEditor({
               className="h-11 text-base"
               value={report.title}
               onChange={(event) => {
-                setReport((current) => ({ ...current, title: event.target.value }));
+                setReport((current) => ({
+                  ...current,
+                  title: event.target.value,
+                }));
                 scheduleSave();
               }}
             />
@@ -461,36 +605,63 @@ export function ReportEditor({
               className="h-11 text-base"
               value={report.preparedBy}
               onChange={(event) => {
-                setReport((current) => ({ ...current, preparedBy: event.target.value }));
+                setReport((current) => ({
+                  ...current,
+                  preparedBy: event.target.value,
+                }));
                 scheduleSave();
               }}
             />
           </div>
         </div>
         {saveError && (
-          <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
-            {saveError}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
+            <p role="alert">{saveError} Your edits remain in this form.</p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void persist()}
+            >
+              Retry save
+            </Button>
+          </div>
         )}
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <nav aria-label="Work orders" className="hidden lg:block">
-          <p className="mb-2 text-sm font-medium text-muted-foreground">This month</p>
+        <nav
+          aria-label="Work orders"
+          className="hidden self-start rounded-xl border bg-card p-3 lg:sticky lg:top-5 lg:block"
+        >
+          <p className="mb-2 text-sm font-medium text-muted-foreground">
+            This month
+          </p>
           <div className="max-h-[calc(100vh-8rem)] space-y-1 overflow-auto pr-1">
             {report.lines.map((workOrder, lineIndex) => (
               <button
                 key={workOrder.id}
                 type="button"
                 tabIndex={-1}
+                aria-current={lineIndex === index ? "true" : undefined}
                 onClick={() => setIndex(lineIndex)}
                 className={cn(
-                  "w-full rounded-md border-l-2 px-3 py-2 text-left",
-                  lineIndex === index ? "border-primary bg-accent" : "border-transparent hover:bg-muted",
+                  "w-full rounded-lg border-l-2 px-3 py-3 text-left transition-colors",
+                  lineIndex === index
+                    ? "border-primary bg-accent"
+                    : "border-transparent hover:bg-muted",
                 )}
               >
-                <span className="font-mono text-xs text-muted-foreground">{workOrder.no || "—"}</span>
-                <span className="block truncate text-sm">{workOrder.customer || "Blank work order"}</span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  {workOrder.no || "—"}
+                </span>
+                <span className="block truncate text-sm font-medium">
+                  {workOrder.customer || "Blank work order"}
+                </span>
+                {workOrder.wor && (
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    WOR {workOrder.wor}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -499,9 +670,12 @@ export function ReportEditor({
         <div id="work-order" className="grid gap-4">
           {!line ? (
             <div className="rounded-xl bg-card px-4 py-8 ring-1 ring-foreground/10">
-              <h2 className="text-lg font-medium">No work orders in this month</h2>
+              <h2 className="text-lg font-medium">
+                No work orders in this month
+              </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Add the first call. Customer, site, and technician names you have used before are ready to filter as you type.
+                Add the first call. Customer, site, and technician names you
+                have used before are ready to filter as you type.
               </p>
               <Button type="button" className="mt-4" onClick={addLine}>
                 Add a work order
@@ -520,7 +694,8 @@ export function ReportEditor({
                   >
                     {report.lines.map((workOrder, lineIndex) => (
                       <option key={workOrder.id} value={lineIndex}>
-                        {workOrder.no || lineIndex + 1} · {workOrder.customer || "Blank"}{" "}
+                        {workOrder.no || lineIndex + 1} ·{" "}
+                        {workOrder.customer || "Blank"}{" "}
                         {workOrder.wor ? `· ${workOrder.wor}` : ""}
                       </option>
                     ))}
@@ -531,6 +706,7 @@ export function ReportEditor({
                 </p>
               </div>
 
+              <DuplicateNotice report={report} line={line} onOpen={setIndex} />
               <Section title="Job">
                 <TextField
                   id="line-no"
@@ -539,7 +715,12 @@ export function ReportEditor({
                   inputRef={noRef}
                   onChange={(value) => patchLine({ no: value })}
                 />
-                <TextField id="line-wor" label="WOR" value={line.wor} onChange={(value) => patchLine({ wor: value })} />
+                <TextField
+                  id="line-wor"
+                  label="WOR"
+                  value={line.wor}
+                  onChange={(value) => patchLine({ wor: value })}
+                />
                 <TextField
                   id="line-date"
                   label="Date"
@@ -598,10 +779,16 @@ export function ReportEditor({
                   label="Location"
                   value={line.location}
                   suggestions={sites}
-                  placeholder={sites.length ? "Filter this customer's sites" : "Type a site"}
+                  placeholder={
+                    sites.length
+                      ? "Filter this customer's sites"
+                      : "Type a site"
+                  }
                   hint={locationNote}
                   onChange={(value) => {
-                    locationTouched.current = value.trim() !== "" && value !== autofill.current.location;
+                    locationTouched.current =
+                      value.trim() !== "" &&
+                      value !== autofill.current.location;
                     patchLine({ location: value });
                   }}
                   onCommit={(value) => {
@@ -642,7 +829,9 @@ export function ReportEditor({
                   value={line.serialNo}
                   suggestions={machineOptions}
                   limit={40}
-                  placeholder={machines.length ? "Filter serial or model" : "Serial number"}
+                  placeholder={
+                    machines.length ? "Filter serial or model" : "Serial number"
+                  }
                   hint={machineHint}
                   onFocus={() => {
                     serialAtEdit.current = line.serialNo;
@@ -655,9 +844,14 @@ export function ReportEditor({
                   id="line-model"
                   label="Model No."
                   value={line.modelNo}
-                  className={line.modelNo === "Unknown Model" ? "border-destructive" : undefined}
+                  className={
+                    line.modelNo === "Unknown Model"
+                      ? "border-destructive"
+                      : undefined
+                  }
                   onChange={(value) => {
-                    modelTouched.current = value.trim() !== "" && value !== autofill.current.model;
+                    modelTouched.current =
+                      value.trim() !== "" && value !== autofill.current.model;
                     patchLine({ modelNo: value });
                   }}
                   onBlur={(value) => considerModel(value)}
@@ -673,21 +867,31 @@ export function ReportEditor({
               {prompt && (
                 <div className="flex flex-col gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm">
-                    Add prefix <span className="font-mono">{prompt.prefix}</span> for{" "}
-                    <span className="font-medium">{prompt.model}</span> to this report&apos;s prefix map?
+                    Add prefix{" "}
+                    <span className="font-mono">{prompt.prefix}</span> for{" "}
+                    <span className="font-medium">{prompt.model}</span> to this
+                    report&apos;s prefix map?
                   </p>
                   <div className="flex gap-2">
                     <Button type="button" size="sm" onClick={addPromptToMap}>
                       Add prefix
                     </Button>
-                    <Button type="button" size="sm" variant="outline" onClick={() => setPrompt(null)}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setPrompt(null)}
+                    >
                       Not now
                     </Button>
                   </div>
                 </div>
               )}
 
-              <Section title="Crew" hint="Both columns share the technician list from saved rows.">
+              <Section
+                title="Crew"
+                hint="Both columns share the technician list from saved rows."
+              >
                 <SuggestInput
                   id="line-tech"
                   label="Technician Assigned"
@@ -696,7 +900,10 @@ export function ReportEditor({
                   placeholder="Start typing a technician"
                   onChange={(value) => patchLine({ technician: value })}
                   onCommit={(value) => {
-                    const technician = canonicalize(value, suggestionsRef.current.techs);
+                    const technician = canonicalize(
+                      value,
+                      suggestionsRef.current.techs,
+                    );
                     if (technician !== value) patchLine({ technician });
                   }}
                 />
@@ -708,7 +915,10 @@ export function ReportEditor({
                   placeholder="Optional"
                   onChange={(value) => patchLine({ secondaryTech: value })}
                   onCommit={(value) => {
-                    const secondaryTech = canonicalize(value, suggestionsRef.current.techs);
+                    const secondaryTech = canonicalize(
+                      value,
+                      suggestionsRef.current.techs,
+                    );
                     if (secondaryTech !== value) patchLine({ secondaryTech });
                   }}
                 />
@@ -738,7 +948,8 @@ export function ReportEditor({
                     value={hours == null ? "" : formatHours(hours)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Hours between arrival and departure. If departure is earlier, it wraps past midnight.
+                    Hours between arrival and departure. If departure is
+                    earlier, it wraps past midnight.
                   </p>
                 </div>
               </Section>
@@ -751,27 +962,25 @@ export function ReportEditor({
                   options={PARTS_REQUIRED}
                   onChange={(value) => patchLine({ partsRequired: value })}
                 />
-                <div className="grid gap-1.5 sm:col-span-2">
-                  <Label htmlFor="line-part-no">Part No.</Label>
-                  <Textarea
-                    id="line-part-no"
-                    value={line.partNo}
-                    rows={2}
-                    spellCheck={false}
-                    placeholder="One part number per line"
-                    onChange={(event) => patchLine({ partNo: event.target.value })}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    The sheet header is “Part  No.” Multiple parts stay on separate lines.
-                  </p>
-                </div>
+                <PartsInput
+                  key={line.id}
+                  values={{
+                    partNo: line.partNo,
+                    description: line.description,
+                    qty: line.qty,
+                  }}
+                  parts={initialParts}
+                  onChange={patchLine}
+                />
                 <div className="grid gap-1.5 sm:col-span-2">
                   <Label htmlFor="line-description">Description</Label>
                   <Textarea
                     id="line-description"
                     value={line.description}
                     rows={2}
-                    onChange={(event) => patchLine({ description: event.target.value })}
+                    onChange={(event) =>
+                      patchLine({ description: event.target.value })
+                    }
                   />
                 </div>
                 <div className="grid gap-1.5">
@@ -783,7 +992,12 @@ export function ReportEditor({
                     onChange={(event) => patchLine({ qty: event.target.value })}
                   />
                 </div>
-                <TextField id="line-iro" label="IRO" value={line.iro} onChange={(value) => patchLine({ iro: value })} />
+                <TextField
+                  id="line-iro"
+                  label="IRO"
+                  value={line.iro}
+                  onChange={(value) => patchLine({ iro: value })}
+                />
               </Section>
 
               <Section title="Billing">
@@ -824,28 +1038,35 @@ export function ReportEditor({
                     id="line-comments"
                     value={line.comments}
                     rows={3}
-                    onChange={(event) => patchLine({ comments: event.target.value })}
+                    onChange={(event) =>
+                      patchLine({ comments: event.target.value })
+                    }
                   />
                 </div>
               </Section>
 
-              <div className="sticky bottom-3 z-20 flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm">
+              <div className="sticky bottom-12 z-20 flex flex-wrap items-center gap-2 rounded-xl border bg-card px-3 py-3 shadow-lg sm:gap-3 sm:px-4">
                 <Button type="button" onClick={() => void saveAndNext()}>
                   Save and next
                 </Button>
                 <Button type="button" variant="outline" onClick={addLine}>
                   New work order
                 </Button>
-                <Button type="button" variant="ghost" onClick={() => setConfirmDelete(true)}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setConfirmDelete(true)}
+                >
                   Remove
                 </Button>
-                <p className="text-sm text-muted-foreground">
+                <p className="ml-auto text-xs tabular-nums text-muted-foreground">
                   {index + 1} of {report.lines.length}
                 </p>
               </div>
               <p className="text-sm leading-6 text-muted-foreground">
-                Tab moves through the fields. Enter picks a highlighted name or machine. Ctrl+S saves. Ctrl+Enter
-                saves and opens the next work order. Export uses {fileMonthStamp(report.lines)}.
+                Tab moves through the fields. Enter picks a highlighted name or
+                machine. Ctrl+S saves. Ctrl+Enter saves and opens the next work
+                order. Export uses {fileMonthStamp(report.lines)}.
               </p>
             </>
           )}
@@ -856,31 +1077,52 @@ export function ReportEditor({
             </summary>
             <div className="mt-3 grid gap-3">
               <p className="text-sm text-muted-foreground">
-                Column A is the first three characters of a serial. Column B is the model the Master sheet macro writes.
+                Column A is the first three characters of a serial. Column B is
+                the model the Master sheet macro writes.
               </p>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="outline" onClick={checkPrefixMap}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={checkPrefixMap}
+                >
                   Update from work orders
                 </Button>
               </div>
               {addedCount > 0 && (
-                <p className="text-sm">Added {addedCount} new prefix{addedCount === 1 ? "" : "es"}.</p>
+                <p className="text-sm">
+                  Added {addedCount} new prefix{addedCount === 1 ? "" : "es"}.
+                </p>
               )}
               {conflicts.length > 0 && (
                 <ul className="grid gap-2">
                   {conflicts.map((conflict) => (
-                    <li key={`${conflict.prefix}-${conflict.incoming}`} className="rounded-lg border px-3 py-2 text-sm">
-                      Prefix <span className="font-mono">{conflict.prefix}</span> is mapped to {conflict.existing}. A
-                      work order says {conflict.incoming}.
+                    <li
+                      key={`${conflict.prefix}-${conflict.incoming}`}
+                      className="rounded-lg border px-3 py-2 text-sm"
+                    >
+                      Prefix{" "}
+                      <span className="font-mono">{conflict.prefix}</span> is
+                      mapped to {conflict.existing}. A work order says{" "}
+                      {conflict.incoming}.
                       <div className="mt-2 flex gap-2">
-                        <Button type="button" size="sm" onClick={() => overwritePrefix(conflict)}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => overwritePrefix(conflict)}
+                        >
                           Overwrite
                         </Button>
                         <Button
                           type="button"
                           size="sm"
                           variant="outline"
-                          onClick={() => setConflicts((current) => current.filter((item) => item !== conflict))}
+                          onClick={() =>
+                            setConflicts((current) =>
+                              current.filter((item) => item !== conflict),
+                            )
+                          }
                         >
                           Keep {conflict.existing}
                         </Button>
@@ -891,13 +1133,19 @@ export function ReportEditor({
               )}
               <PrefixAdder
                 onAdd={(entry: PrefixEntry) => {
-                  setReport((current) => ({ ...current, prefixMap: [...current.prefixMap, entry] }));
+                  setReport((current) => ({
+                    ...current,
+                    prefixMap: [...current.prefixMap, entry],
+                  }));
                   scheduleSave();
                 }}
               />
               <ul className="max-h-48 overflow-auto text-sm">
                 {report.prefixMap.map((entry) => (
-                  <li key={`${entry.prefix}-${entry.model}`} className="grid grid-cols-[5rem_1fr] gap-2 border-b py-1">
+                  <li
+                    key={`${entry.prefix}-${entry.model}`}
+                    className="grid grid-cols-[5rem_1fr] gap-2 border-b py-1"
+                  >
                     <span className="font-mono">{entry.prefix}</span>
                     <span>{entry.model}</span>
                   </li>
@@ -906,7 +1154,12 @@ export function ReportEditor({
             </div>
           </details>
 
-          <Button type="button" variant="ghost" className="justify-self-start text-destructive" onClick={() => void removeReport()}>
+          <Button
+            type="button"
+            variant="ghost"
+            className="justify-self-start text-destructive"
+            onClick={() => void removeReport()}
+          >
             Delete this report
           </Button>
         </div>
@@ -917,11 +1170,16 @@ export function ReportEditor({
           <DialogHeader>
             <DialogTitle>Remove this work order?</DialogTitle>
             <DialogDescription>
-              It is dropped from this month. Customers, sites, and technicians you already saved stay in the lists.
+              It is dropped from this month. Customers, sites, and technicians
+              you already saved stay in the lists.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmDelete(false)}
+            >
               Keep it
             </Button>
             <Button type="button" variant="destructive" onClick={removeLine}>
@@ -944,10 +1202,18 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="grid gap-4 rounded-xl border bg-card px-4 py-5 sm:px-5">
-      <div>
-        <h2 className="text-base font-semibold">{title}</h2>
-        {hint && <p className="mt-1 text-sm leading-6 text-muted-foreground">{hint}</p>}
+    <section className="grid gap-5 rounded-xl border bg-card px-4 py-5 shadow-sm sm:px-5">
+      <div className="border-b pb-3">
+        <h2 className="flex items-center gap-2 text-base font-semibold">
+          <span
+            className="h-4 w-1 rounded-full bg-primary/60"
+            aria-hidden="true"
+          />
+          {title}
+        </h2>
+        {hint && (
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">{hint}</p>
+        )}
       </div>
       <div className="grid gap-4 sm:grid-cols-2">{children}</div>
     </section>
@@ -1015,7 +1281,12 @@ function Choice({
   return (
     <div className="grid gap-1.5">
       <Label htmlFor={id}>{label}</Label>
-      <select id={id} className={selectClass} value={value} onChange={(event) => onChange(event.target.value)}>
+      <select
+        id={id}
+        className={selectClass}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
         <option value="">Choose</option>
         {[...extra, ...options].map((option) => (
           <option key={option} value={option}>

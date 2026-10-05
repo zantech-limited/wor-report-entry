@@ -1,0 +1,51 @@
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:43124:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - reports:/app/data
+    restart: unless-stopped
+  mysql:
+    image: mysql:8.4
+    profiles: [mysql]
+    environment:
+      MYSQL_DATABASE: service_report
+      MYSQL_USER: service_desk
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-local-test-password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-local-test-root-password}
+    command: ["--max-allowed-packet=128M"]
+    ports:
+      - "127.0.0.1:33067:3306"
+    volumes:
+      - mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  postgres:
+    image: postgres:16-alpine
+    profiles: [postgres]
+    environment:
+      POSTGRES_DB: service_report
+      POSTGRES_USER: service_desk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-test-password}
+    ports:
+      - "127.0.0.1:54327:5432"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U service_desk -d service_report"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+volumes:
+  reports:
+  mysql:
+  postgres:

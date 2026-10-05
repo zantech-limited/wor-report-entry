@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { DeskNav } from "@/components/desk-nav";
 import { Providers } from "@/components/providers";
 import "./globals.css";
+import packageInfo from "../../package.json";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,10 +28,20 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
         <Providers>
           <DeskNav />
-          <main>{children}</main>
+          <main id="main-content" className="min-h-[calc(100vh-12rem)] pb-12">
+            {children}
+          </main>
+          <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-end gap-3 border-t px-4 py-5 text-xs text-muted-foreground sm:px-6">
+            <span className="fixed bottom-3 left-4 z-30 rounded-md border border-red-300 bg-red-50 px-3 py-1.5 font-semibold text-red-700 shadow-sm">
+              Internal use only
+            </span>
+            <p>© {new Date().getFullYear()} Zantech Limited · v{packageInfo.version}</p>
+          </footer>
         </Providers>
       </body>
     </html>

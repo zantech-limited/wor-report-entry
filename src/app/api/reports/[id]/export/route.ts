@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getReport, getReportBlob } from "@/lib/db";
 import { templatePath, writeWorkbook } from "@/lib/excel";
 import { fileMonthStamp } from "@/lib/model";
+import { logEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,10 +20,11 @@ export async function GET(
     const file = await writeWorkbook(base, report);
     const who = report.preparedBy.trim() || "Service desk";
     const filename = `Monthly Service Report ${who} ${fileMonthStamp(report.lines)}.xlsm`;
+    logEvent("workbook.exported", "Exported a macro-preserving workbook.");
     return new NextResponse(new Uint8Array(file), {
       headers: {
         "Content-Type": "application/vnd.ms-excel.sheet.macroEnabled.12",
-        "Content-Disposition": `attachment; filename="${filename.replace(/"/g, "")}"`,
+        "Content-Disposition": `attachment; filename="${filename.replace(/[^\x20-\x7e]|["\\]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
       },
     });
   } catch (cause) {

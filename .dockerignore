@@ -1,0 +1,11 @@
+.git
+.next
+node_modules
+data
+.checks
+docs
+.env*
+*.tsbuildinfo
+*.xlsm
+*.xlsx
+!templates/monthly-service-report.xlsm

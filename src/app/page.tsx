@@ -1,6 +1,7 @@
 import { ReportEditor } from "@/components/report-editor";
 import { ReportHome } from "@/components/report-home";
 import { getReport, getSuggestions, listReports } from "@/lib/db";
+import { listParts } from "@/lib/parts";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export default async function HomePage({
       initialSuggestions={suggestions}
       initialIndex={line}
       months={reports}
+      initialParts={await listParts()}
     />
   );
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { deleteReport, getReport, saveReport } from "@/lib/db";
 import type { Report } from "@/lib/model";
+import { logEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +26,8 @@ export async function PUT(
     const suggestions = await saveReport(id, body);
     return NextResponse.json({ suggestions });
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : "Could not save the report.";
+    logEvent("report.save_failed", "A report could not be saved.", "error");
+    const message = cause instanceof Error && /^(That report|Invalid |Report exceeds|Work orders|Storage migration|customer must|location must|technician must|secondaryTech must)/.test(cause.message) ? cause.message : "Could not save the report. Check the storage connection and try again.";
     const status = message.includes("no longer saved") ? 404 : 400;
     return NextResponse.json({ error: message }, { status });
   }
