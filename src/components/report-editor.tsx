@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { MonthActions } from "@/components/month-actions";
 import { SuggestInput } from "@/components/suggest-input";
-import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -32,19 +31,22 @@ import {
   fileMonthStamp,
   formatHours,
   locationsFor,
-  lookupModel,
+  machinesFor,
+  matchMachine,
+  modelForSerial,
   nextLineNo,
   prefixOf,
   reportMonthLabel,
   timeTakenHours,
   type PrefixEntry,
   type Report,
+  type ReportSummary,
   type Suggestions,
   type WorkOrder,
 } from "@/lib/model";
 
 const selectClass =
-  "h-10 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:h-9";
+  "h-11 w-full rounded-lg border border-input bg-card px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
 type SaveStatus = "saved" | "unsaved" | "saving" | "error";
 type Conflict = { prefix: string; existing: string; incoming: string };
@@ -52,14 +54,18 @@ type Conflict = { prefix: string; existing: string; incoming: string };
 export function ReportEditor({
   initial,
   initialSuggestions,
+  initialIndex = 0,
+  months = [],
 }: {
   initial: Report;
   initialSuggestions: Suggestions;
+  initialIndex?: number;
+  months?: ReportSummary[];
 }) {
   const router = useRouter();
   const [report, setReport] = useState(initial);
   const [suggestions, setSuggestions] = useState(initialSuggestions);
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(initialIndex);
   const [status, setStatus] = useState<SaveStatus>("saved");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<{ prefix: string; model: string } | null>(null);
@@ -77,6 +83,9 @@ export function ReportEditor({
   const noRef = useRef<HTMLInputElement>(null);
   const customerAtFocus = useRef("");
   const serialAtEdit = useRef("");
+  const modelTouched = useRef(false);
+  const locationTouched = useRef(false);
+  const autofill = useRef({ model: "", location: "" });
 
   latest.current = report;
   suggestionsRef.current = suggestions;
@@ -91,6 +100,13 @@ export function ReportEditor({
     noRef.current?.focus();
     setFocusLine(false);
   }, [focusLine, index]);
+
+  useEffect(() => {
+    modelTouched.current = false;
+    locationTouched.current = false;
+    autofill.current = { model: "", location: "" };
+    serialAtEdit.current = latest.current.lines[index]?.serialNo ?? "";
+  }, [index]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -220,25 +236,57 @@ export function ReportEditor({
     addLine();
   }
 
-  function onSerial(value: string) {
+  function canReplaceModel(current: string) {
+    if (modelTouched.current) return false;
+    if (!current.trim()) return true;
+    return current === autofill.current.model;
+  }
+
+  function applySerial(value: string, force: boolean) {
     setReport((current) => {
       const lines = current.lines.slice();
       const currentLine = lines[indexRef.current];
       if (!currentLine) return current;
-      const next = { ...currentLine, serialNo: value };
-      const prefix = prefixOf(value);
+      const machine = matchMachine(currentLine.customer, value, suggestionsRef.current);
+      const serial = force && machine ? machine.serialNo : value;
+      const next = { ...currentLine, serialNo: serial };
+      const prefix = prefixOf(serial);
       const previous = prefixOf(serialAtEdit.current);
-      if (prefix.length < 3) {
-        serialAtEdit.current = value;
-        if (!value.trim() && !currentLine.modelNo.trim()) next.modelNo = "";
-      } else if (prefix.toLowerCase() !== previous.toLowerCase()) {
-        next.modelNo = lookupModel(value, current.prefixMap) ?? "Unknown Model";
-        serialAtEdit.current = value;
+      const prefixChanged = prefix.length >= 3 && prefix.toLowerCase() !== previous.toLowerCase();
+      if (prefix.length < 3) serialAtEdit.current = serial;
+      const model = modelForSerial(serial, current.prefixMap, machine?.modelNo ?? "");
+      if (force || canReplaceModel(currentLine.modelNo)) {
+        if (machine || prefixChanged || (model && !currentLine.modelNo.trim())) {
+          if (model) {
+            next.modelNo = model;
+            autofill.current.model = model;
+          }
+        } else if (!serial.trim() && !currentLine.modelNo.trim()) {
+          next.modelNo = "";
+          autofill.current.model = "";
+        }
+      }
+      if (prefix.length >= 3) serialAtEdit.current = serial;
+      if (machine?.location && (force || (!locationTouched.current && !currentLine.location.trim()))) {
+        next.location = machine.location;
+        autofill.current.location = machine.location;
+      }
+      if (force) {
+        modelTouched.current = false;
+        locationTouched.current = false;
       }
       lines[indexRef.current] = next;
       return { ...current, lines };
     });
     scheduleSave();
+  }
+
+  function onSerial(value: string) {
+    applySerial(value, false);
+  }
+
+  function pickMachine(serial: string) {
+    applySerial(serial, true);
   }
 
   function considerModel(value: string) {
@@ -331,35 +379,74 @@ export function ReportEditor({
 
   const hours = line ? timeTakenHours(line.arrivalTime, line.departureTime) : null;
 
+  const machines = line ? machinesFor(line.customer, suggestions) : [];
+  const machineOptions = machines.map((machine) => ({
+    value: machine.serialNo,
+    label: machine.serialNo,
+    description: [machine.modelNo, machine.location].filter(Boolean).join(" · "),
+  }));
+  const machineHint = !line?.customer.trim()
+    ? "Choose a customer first. Machines stay limited to that customer."
+    : machines.length
+      ? `${machines.length} machines on file for ${line.customer}. Pick one, or type a new serial.`
+      : "No machines on file for this customer. Type the serial. The prefix map still fills the model.";
+
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
       <a href="#work-order" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-40 focus:rounded-md focus:bg-background focus:px-3 focus:py-2">
         Skip to work order
       </a>
-      <header className="flex flex-col gap-4 border-b pb-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Link href="/" className={buttonVariants({ variant: "outline", size: "sm" })}>
-            All reports
-          </Link>
+      <header className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Entry</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {month}
+              {report.preparedBy ? ` · ${report.preparedBy}` : ""}
+            </p>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">{month}</Badge>
-            <span className="text-xs text-muted-foreground" aria-live="polite">
+            <span className="text-sm text-muted-foreground" aria-live="polite">
               {status === "saving" && "Saving…"}
               {status === "saved" && "Saved"}
               {status === "unsaved" && "Unsaved changes"}
               {status === "error" && "Not saved"}
             </span>
-            <Button type="button" variant="outline" size="sm" onClick={() => void download()}>
-              Export .xlsm
+            <Button type="button" variant="outline" onClick={() => void download()}>
+              Export workbook
             </Button>
+            <MonthActions quiet />
           </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        {months.length > 1 && (
+          <div className="grid max-w-md gap-1.5">
+            <Label htmlFor="month-switch">Month</Label>
+            <select
+              id="month-switch"
+              className={selectClass}
+              value={report.id}
+              onChange={(event) => {
+                const next = event.target.value;
+                void (async () => {
+                  if (dirty.current) await persist();
+                  router.push(`/?report=${next}`);
+                })();
+              }}
+            >
+              {months.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.monthLabel} · {item.preparedBy || "No preparer"} · {item.lineCount} orders
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div className="grid gap-4 sm:grid-cols-2">
           <div className="grid gap-1.5">
             <Label htmlFor="report-title">Report title</Label>
             <Input
               id="report-title"
-              className="h-10 sm:h-9"
+              className="h-11 text-base"
               value={report.title}
               onChange={(event) => {
                 setReport((current) => ({ ...current, title: event.target.value }));
@@ -371,7 +458,7 @@ export function ReportEditor({
             <Label htmlFor="prepared-by">Prepared by</Label>
             <Input
               id="prepared-by"
-              className="h-10 sm:h-9"
+              className="h-11 text-base"
               value={report.preparedBy}
               onChange={(event) => {
                 setReport((current) => ({ ...current, preparedBy: event.target.value }));
@@ -389,9 +476,7 @@ export function ReportEditor({
 
       <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
         <nav aria-label="Work orders" className="hidden lg:block">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            This month
-          </p>
+          <p className="mb-2 text-sm font-medium text-muted-foreground">This month</p>
           <div className="max-h-[calc(100vh-8rem)] space-y-1 overflow-auto pr-1">
             {report.lines.map((workOrder, lineIndex) => (
               <button
@@ -400,8 +485,8 @@ export function ReportEditor({
                 tabIndex={-1}
                 onClick={() => setIndex(lineIndex)}
                 className={cn(
-                  "w-full rounded-lg px-2 py-1.5 text-left",
-                  lineIndex === index ? "bg-primary/10" : "hover:bg-muted",
+                  "w-full rounded-md border-l-2 px-3 py-2 text-left",
+                  lineIndex === index ? "border-primary bg-accent" : "border-transparent hover:bg-muted",
                 )}
               >
                 <span className="font-mono text-xs text-muted-foreground">{workOrder.no || "—"}</span>
@@ -515,7 +600,10 @@ export function ReportEditor({
                   suggestions={sites}
                   placeholder={sites.length ? "Filter this customer's sites" : "Type a site"}
                   hint={locationNote}
-                  onChange={(value) => patchLine({ location: value })}
+                  onChange={(value) => {
+                    locationTouched.current = value.trim() !== "" && value !== autofill.current.location;
+                    patchLine({ location: value });
+                  }}
                   onCommit={(value) => {
                     const options = locationsFor(
                       latest.current.lines[indexRef.current]?.customer ?? "",
@@ -546,24 +634,32 @@ export function ReportEditor({
 
               <Section
                 title="Machine"
-                hint="Serial No. comes before Model No. here so the prefix map can fill the model, the same way the Master sheet macro does when the serial changes."
+                hint="Serial comes first. Pick a machine this customer already has, or type a new one. The prefix map fills Model No. when you have not typed a model yourself."
               >
-                <TextField
+                <SuggestInput
                   id="line-serial"
                   label="Serial No."
                   value={line.serialNo}
-                  spellCheck={false}
+                  suggestions={machineOptions}
+                  limit={40}
+                  placeholder={machines.length ? "Filter serial or model" : "Serial number"}
+                  hint={machineHint}
                   onFocus={() => {
                     serialAtEdit.current = line.serialNo;
                   }}
                   onChange={onSerial}
+                  onCommit={onSerial}
+                  onPick={pickMachine}
                 />
                 <TextField
                   id="line-model"
                   label="Model No."
                   value={line.modelNo}
-                  className={line.modelNo === "Unknown Model" ? "border-destructive bg-destructive/10" : undefined}
-                  onChange={(value) => patchLine({ modelNo: value })}
+                  className={line.modelNo === "Unknown Model" ? "border-destructive" : undefined}
+                  onChange={(value) => {
+                    modelTouched.current = value.trim() !== "" && value !== autofill.current.model;
+                    patchLine({ modelNo: value });
+                  }}
                   onBlur={(value) => considerModel(value)}
                 />
                 <TextField
@@ -638,7 +734,7 @@ export function ReportEditor({
                   <Input
                     id="line-time-taken"
                     readOnly
-                    className="h-10 sm:h-9"
+                    className="h-11 bg-muted/60 text-base"
                     value={hours == null ? "" : formatHours(hours)}
                   />
                   <p className="text-xs text-muted-foreground">
@@ -733,7 +829,7 @@ export function ReportEditor({
                 </div>
               </Section>
 
-              <div className="flex flex-wrap gap-2 border-t pt-4">
+              <div className="sticky bottom-3 z-20 flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm">
                 <Button type="button" onClick={() => void saveAndNext()}>
                   Save and next
                 </Button>
@@ -741,13 +837,15 @@ export function ReportEditor({
                   New work order
                 </Button>
                 <Button type="button" variant="ghost" onClick={() => setConfirmDelete(true)}>
-                  Remove this work order
+                  Remove
                 </Button>
+                <p className="text-sm text-muted-foreground">
+                  {index + 1} of {report.lines.length}
+                </p>
               </div>
-              <p className="text-xs leading-5 text-muted-foreground">
-                Tab and Shift+Tab move through the fields. Enter picks a highlighted customer, site, or technician.
-                Ctrl+S saves. Ctrl+Enter saves and opens the next work order. Alt+N adds one. Alt+Up and Alt+Down
-                move between work orders. Export file name uses {fileMonthStamp(report.lines)}.
+              <p className="text-sm leading-6 text-muted-foreground">
+                Tab moves through the fields. Enter picks a highlighted name or machine. Ctrl+S saves. Ctrl+Enter
+                saves and opens the next work order. Export uses {fileMonthStamp(report.lines)}.
               </p>
             </>
           )}
@@ -846,12 +944,12 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="grid gap-3 border-t pt-4">
+    <section className="grid gap-4 rounded-xl border bg-card px-4 py-5 sm:px-5">
       <div>
-        <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">{title}</h2>
-        {hint && <p className="mt-1 text-xs leading-5 text-muted-foreground">{hint}</p>}
+        <h2 className="text-base font-semibold">{title}</h2>
+        {hint && <p className="mt-1 text-sm leading-6 text-muted-foreground">{hint}</p>}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">{children}</div>
+      <div className="grid gap-4 sm:grid-cols-2">{children}</div>
     </section>
   );
 }
@@ -890,7 +988,7 @@ function TextField({
         type={type}
         inputMode={inputMode}
         spellCheck={spellCheck}
-        className={cn("h-10 sm:h-9", className)}
+        className={cn("h-11 text-base", className)}
         value={value}
         onFocus={onFocus}
         onChange={(event) => onChange(event.target.value)}

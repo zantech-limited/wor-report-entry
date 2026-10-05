@@ -99,16 +99,44 @@ export type ReportSummary = {
   monthLabel: string;
 };
 
+export type MachineRecord = {
+  serialNo: string;
+  modelNo: string;
+  location: string;
+};
+
 export type Suggestions = {
   customers: string[];
   locationsByCustomer: Record<string, string[]>;
   techs: string[];
+  machinesByCustomer: Record<string, MachineRecord[]>;
+};
+
+export type WorkEntry = {
+  reportId: string;
+  lineIndex: number;
+  monthLabel: string;
+  date: string;
+  no: string;
+  wor: string;
+  customer: string;
+  location: string;
+  serviceType: string;
+  slaType: string;
+  modelNo: string;
+  serialNo: string;
+  technician: string;
+  secondaryTech: string;
+  hours: number | null;
+  jobStatus: string;
+  revenue: number | null;
 };
 
 export const EMPTY_SUGGESTIONS: Suggestions = {
   customers: [],
   locationsByCustomer: {},
   techs: [],
+  machinesByCustomer: {},
 };
 
 const LINE_FIELDS: (keyof WorkOrder)[] = [
@@ -272,6 +300,42 @@ export function locationsFor(
   const key = canonicalize(customer, suggestions.customers);
   if (!key) return [];
   return suggestions.locationsByCustomer[key] ?? [];
+}
+
+export function machinesFor(
+  customer: string,
+  suggestions: Suggestions,
+): MachineRecord[] {
+  const key = canonicalize(customer, suggestions.customers);
+  if (!key) return [];
+  return suggestions.machinesByCustomer[key] ?? [];
+}
+
+export function matchMachine(
+  customer: string,
+  serial: string,
+  suggestions: Suggestions,
+): MachineRecord | null {
+  const needle = serial.trim().toLowerCase();
+  if (!needle) return null;
+  const matches = machinesFor(customer, suggestions).filter(
+    (machine) => machine.serialNo.toLowerCase() === needle,
+  );
+  return matches.length === 1 ? matches[0] : null;
+}
+
+/** Prefix map first, then the model stored on past visits, then Unknown Model. */
+export function modelForSerial(
+  serial: string,
+  map: PrefixEntry[],
+  historyModel = "",
+): string {
+  const fromPrefix = lookupModel(serial, map);
+  if (fromPrefix) return fromPrefix;
+  const historical = historyModel.trim();
+  if (historical && historical !== "Unknown Model") return historical;
+  if (prefixOf(serial).length >= 3) return "Unknown Model";
+  return "";
 }
 
 export function applyCustomerChange(

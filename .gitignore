@@ -42,3 +42,7 @@ next-env.d.ts
 
 # local report database
 /data
+
+# workbooks contain customer rows and stay on disk
+*.xlsm
+*.xlsx

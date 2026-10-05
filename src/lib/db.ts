@@ -6,10 +6,13 @@ import {
   blankLine,
   isBlankLine,
   reportMonthLabel,
+  timeTakenHours,
+  type MachineRecord,
   type PrefixEntry,
   type Report,
   type ReportSummary,
   type Suggestions,
+  type WorkEntry,
   type WorkOrder,
 } from "./model";
 import { readFileSync } from "node:fs";
@@ -144,7 +147,92 @@ export async function getSuggestions(): Promise<Suggestions> {
       locationsByCustomer[row.parent] = list;
     }
   }
-  return { customers, locationsByCustomer, techs };
+  return {
+    customers,
+    locationsByCustomer,
+    techs,
+    machinesByCustomer: collectMachines(db),
+  };
+}
+
+function collectMachines(db: DatabaseSync): Record<string, MachineRecord[]> {
+  const reports = db
+    .prepare("SELECT lines FROM reports ORDER BY updated_at ASC")
+    .all() as { lines: string }[];
+  const byCustomer = new Map<
+    string,
+    Map<string, { serialNo: string; modelNo: string; locations: Set<string>; visits: number }>
+  >();
+  for (const report of reports) {
+    const lines = JSON.parse(report.lines) as WorkOrder[];
+    for (const line of lines) {
+      const customer = line.customer.trim();
+      const serial = line.serialNo.trim();
+      if (!customer || !serial) continue;
+      const machines = byCustomer.get(customer) ?? new Map();
+      const key = serial.toLowerCase();
+      const current = machines.get(key) ?? {
+        serialNo: serial,
+        modelNo: "",
+        locations: new Set<string>(),
+        visits: 0,
+      };
+      current.visits += 1;
+      current.serialNo = serial;
+      const model = line.modelNo.trim();
+      if (model && model !== "Unknown Model") current.modelNo = model;
+      const location = line.location.trim();
+      if (location) current.locations.add(location);
+      machines.set(key, current);
+      byCustomer.set(customer, machines);
+    }
+  }
+  const result: Record<string, MachineRecord[]> = {};
+  for (const [customer, machines] of byCustomer) {
+    result[customer] = [...machines.values()]
+      .sort((a, b) => b.visits - a.visits || a.serialNo.localeCompare(b.serialNo))
+      .map((machine) => ({
+        serialNo: machine.serialNo,
+        modelNo: machine.modelNo,
+        location: machine.locations.size === 1 ? [...machine.locations][0] : "",
+      }));
+  }
+  return result;
+}
+
+export async function listWorkEntries(): Promise<WorkEntry[]> {
+  await whenReady();
+  const rows = database()
+    .prepare("SELECT id, lines FROM reports ORDER BY updated_at DESC")
+    .all() as { id: string; lines: string }[];
+  const entries: WorkEntry[] = [];
+  for (const row of rows) {
+    const lines = JSON.parse(row.lines) as WorkOrder[];
+    lines.forEach((line, lineIndex) => {
+      if (isBlankLine(line)) return;
+      const revenue = Number(line.revenue.replace(/[$,]/g, ""));
+      entries.push({
+        reportId: row.id,
+        lineIndex,
+        monthLabel: reportMonthLabel([line]),
+        date: line.date,
+        no: line.no,
+        wor: line.wor,
+        customer: line.customer,
+        location: line.location,
+        serviceType: line.serviceType,
+        slaType: line.slaType,
+        modelNo: line.modelNo,
+        serialNo: line.serialNo,
+        technician: line.technician,
+        secondaryTech: line.secondaryTech,
+        hours: timeTakenHours(line.arrivalTime, line.departureTime),
+        jobStatus: line.jobStatus,
+        revenue: Number.isFinite(revenue) && line.revenue.trim() ? revenue : null,
+      });
+    });
+  }
+  return entries;
 }
 
 function rowToReport(row: ReportRow): Report {

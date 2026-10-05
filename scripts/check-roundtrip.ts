@@ -65,7 +65,7 @@ const zip = await JSZip.loadAsync(out);
 assert(zip.file("xl/vbaProject.bin"), "vba missing");
 const originalVba = (await JSZip.loadAsync(source)).file("xl/vbaProject.bin");
 const nextVba = zip.file("xl/vbaProject.bin");
-assert(originalVba && nextVba, "vba files");
+if (!originalVba || !nextVba) throw new Error("vba files");
 const a = Buffer.from(await originalVba.async("uint8array"));
 const b = Buffer.from(await nextVba.async("uint8array"));
 assert(a.equals(b), "vba bytes changed");
