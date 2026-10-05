@@ -43,6 +43,7 @@ next-env.d.ts
 # local report database
 /data
 
-# workbooks contain customer rows and stay on disk
+# filled customer workbooks stay on disk; the blank export template is tracked
 *.xlsm
 *.xlsx
+!templates/monthly-service-report.xlsm

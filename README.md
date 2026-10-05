@@ -13,7 +13,9 @@ Open [http://127.0.0.1:43123](http://127.0.0.1:43123).
 
 The dev server listens on port **43123**. No account and no API key are required.
 
-Reports are stored in `data/reports.sqlite`, which is created on first launch and is not in git. Workbooks are not in git either: they contain customer rows. Keep the August workbook on disk at `templates/monthly-service-report.xlsm`. A blank month exports from that file so the macros and prefix map survive. A month you imported exports from the copy stored in the local database.
+Reports are stored in `data/reports.sqlite`, which is created on first launch and is not in git. Workbooks you import stay on this machine too. They are gitignored because they contain customer rows.
+
+`templates/monthly-service-report.xlsm` is part of this repo. It is a blank Master sheet: the title block, formulas, validation lists, prefix map, and macros are there, and the work-order rows are not. A new month exports from that file. A month you imported exports from the copy stored with that month. You do not need to add a workbook by hand before the first export.
 
 ## Pages
 
@@ -30,4 +32,4 @@ Reports are stored in `data/reports.sqlite`, which is created on first launch an
 - A customer with past visits offers that company’s serial numbers. Choosing one fills the serial, the model from the prefix map (or the historical model when the prefix is unknown), and Location when every visit for that serial used the same site. Typed model and location stay as they are until you pick a machine on purpose.
 - Export `.xlsm`. The file keeps the template’s macros, PrefixMap columns, and Master table (`Table2`). Pivot caches are not rebuilt.
 
-Customer names, sites, and technicians from the template workbook are loaded the first time the app starts. Names you type, and names in later imports, are remembered after you save.
+The blank template does not load customer, site, or technician names. Names you type, and names in a workbook you import, are remembered after you save.
