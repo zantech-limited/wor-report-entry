@@ -140,12 +140,15 @@ export function validateBackup(value: unknown): Backup {
 }
 
 async function insertRows(db: Storage, backup: Backup, copyIds: boolean) {
+  const reportIds=new Map<string,string>();
   for (const row of backup.reports) {
+    const id=copyIds ? row.id as string : randomUUID();
+    reportIds.set(row.id as string,id);
     const lines = JSON.parse(row.lines as string) as WorkOrder[];
     await db.query(
       `INSERT INTO reports (id, title, prepared_by, source_filename, created_at, updated_at, prefix_map, lines, source_blob) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        copyIds ? (row.id as string) : randomUUID(),
+        id,
         row.title as string,
         row.prepared_by as string,
         row.source_filename as string | null,
@@ -179,6 +182,14 @@ async function insertRows(db: Storage, backup: Backup, copyIds: boolean) {
         row.key as string,
         row.value as string,
       ]);
+  else for(const row of backup.meta) {
+    let key=String(row.key);
+    if(key.startsWith('report-month:')) {
+      const id=reportIds.get(key.slice(13));if(!id)continue;
+      key=`report-month:${id}`;
+    } else if(!key.startsWith('customer-') && !key.startsWith('part-description:')) continue;
+    if(!await db.prepare('SELECT key FROM meta WHERE key = ?').get(key)) await db.query('INSERT INTO meta (key, value) VALUES (?, ?)',[key,String(row.value)]);
+  }
   for (const row of backup.parts ?? []) {
     if (
       !copyIds &&

@@ -26,6 +26,7 @@ Reports are stored in `data/reports.sqlite`, which is created on first launch an
 - `/statistics` jobs, hours, customers, technicians, and the date span
 - `/reports` a technician report, a customer report, and totals by month
 - `/technicians` add, rename, remove, and restore dropdown names without changing history
+- `/customers` alphabetical names, similar-name review, and consolidation for future autofill
 - `/parts` manually add, edit, and archive parts
 - `/prefixes` manually edit the selected month's serial-prefix map
 - `/admin` token-protected parts catalog, portable backups, storage connections, and activity logs
@@ -105,3 +106,7 @@ npm run build
 The blank template does not load customer, site, or technician names. Names you type, and names in a workbook you import, are remembered after you save.
 
 Parts usage counts each recorded part line across saved workbooks, regardless of QTY. The catalog shows total uses and per-part uses. Different descriptions for one part number can be consolidated by an administrator for future autofill; historical rows stay intact. New catalog picks use quantity 1. Typing a part fills an empty quantity with 1 and preserves existing quantities.
+
+## Version 0.3.0 follow-up
+
+Statistics rows, Reports summary counts, monthly bars/tables, and service-type bars link to filtered Master lists. Date-range and undated settings follow links from Reports. Blank status/service and Undated month links are supported. The first dated work order establishes a persistent workbook month. Subsequent date selections use that month only; imported historical dates remain intact. New work-order IDs also work on HTTP LAN addresses without crypto.randomUUID. Customer dropdowns are alphabetical; Customers allows read-only browsing for everyone and Admin-controlled name consolidation for future suggestions, including shared site/machine history. Portable backups preserve month locks and customer settings.

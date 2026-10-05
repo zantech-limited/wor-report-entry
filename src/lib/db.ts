@@ -3,11 +3,14 @@ import { logEvent } from "./events";
 import { validateReportInput } from "./report-validation";
 import { technicianStates } from "./technicians";
 import { rememberParts } from "./parts";
+import { workbookMonth } from "./workbook-month";
+import { customerSuggestions } from "./customers";
 import { parseWorkbook, templatePath, type DirectoryCounts } from "./excel";
 import {
   blankLine,
   isBlankLine,
   reportMonthLabel,
+  monthLabelFromDate,
   timeTakenHours,
   type MachineRecord,
   type PrefixEntry,
@@ -128,12 +131,12 @@ export async function getSuggestions(): Promise<Suggestions> {
     else if (state.active && found < 0) techs.push(state.name);
   }
   techs.sort((a, b) => a.localeCompare(b));
-  return {
+  return customerSuggestions({
     customers,
     locationsByCustomer,
     techs,
     machinesByCustomer: await collectMachines(db),
-  };
+  });
 }
 
 async function collectMachines(
@@ -265,7 +268,9 @@ export async function listReports(): Promise<ReportSummary[]> {
   )
     .prepare("SELECT * FROM reports ORDER BY updated_at DESC")
     .all()) as ReportRow[];
-  return rows.map(summaryOf);
+  const locks=new Map((await (await database()).query("SELECT key, value FROM meta WHERE key LIKE 'report-month:%'"))
+    .map(row=>[String(row.key).slice(13),String(row.value)]));
+  return rows.map(row=>({...summaryOf(row),...(locks.has(row.id)?{monthLabel:monthLabelFromDate(`${locks.get(row.id)}-01`)}:{})}));
 }
 
 export async function getReport(id: string): Promise<Report | null> {
@@ -275,7 +280,11 @@ export async function getReport(id: string): Promise<Report | null> {
   )
     .prepare("SELECT * FROM reports WHERE id = ?")
     .get(id)) as ReportRow | undefined;
-  return row ? rowToReport(row) : null;
+  if(!row) return null;
+  const report=rowToReport(row);
+  const lock=await (await database()).prepare("SELECT value FROM meta WHERE key = ?").get(`report-month:${id}`);
+  report.monthKey=lock ? String(lock.value) : workbookMonth(report.lines);
+  return report;
 }
 
 export async function getReportBlob(id: string): Promise<Buffer | null> {
@@ -368,10 +377,26 @@ async function saveReportImpl(id: string, input: Report): Promise<Suggestions> {
   const existing = await (
     await database()
   )
-    .prepare("SELECT id FROM reports WHERE id = ?")
+    .prepare("SELECT id, lines FROM reports WHERE id = ?")
     .get(id);
   if (!existing) {
     throw new Error("That report is no longer saved.");
+  }
+  const previous=JSON.parse(String(existing.lines)) as WorkOrder[];
+  for(const line of input.lines) {
+    if(!line.date || previous.find(old=>old.id===line.id)?.date===line.date) continue;
+    const parsed=new Date(`${line.date}T00:00:00Z`);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(line.date) || Number.isNaN(parsed.valueOf()) || parsed.toISOString().slice(0,10)!==line.date) throw new Error('Invalid work-order date. Choose a calendar date.');
+  }
+  const db=await database();
+  const lock=await db.prepare("SELECT value FROM meta WHERE key = ?").get(`report-month:${id}`);
+  const monthKey=lock ? String(lock.value) : workbookMonth(previous) || workbookMonth(input.lines);
+  if(monthKey) {
+    for(const line of input.lines) {
+      const before=previous.find(old=>old.id===line.id);
+      if(line.date && line.date!==before?.date && !line.date.startsWith(`${monthKey}-`)) throw new Error(`Invalid date: this workbook is locked to ${monthKey}. Start a new month for that date.`);
+    }
+    if(!lock) await db.query("INSERT INTO meta (key, value) VALUES (?, ?)",[`report-month:${id}`,monthKey]);
   }
   const lines = Array.isArray(input.lines) ? input.lines : [];
   const prefixMap = Array.isArray(input.prefixMap) ? input.prefixMap : [];
@@ -400,6 +425,7 @@ async function deleteReportImpl(id: string): Promise<void> {
   await whenReady();
   assertWritable();
   await (await database()).prepare("DELETE FROM reports WHERE id = ?").run(id);
+  await (await database()).query("DELETE FROM meta WHERE key = ?",[`report-month:${id}`]);
   logEvent("report.deleted", "Deleted a month.");
 }
 

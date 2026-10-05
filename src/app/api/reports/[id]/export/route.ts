@@ -19,7 +19,7 @@ export async function GET(
     const base = (await getReportBlob(id)) ?? readFileSync(templatePath());
     const file = await writeWorkbook(base, report);
     const who = report.preparedBy.trim() || "Service desk";
-    const filename = `Monthly Service Report ${who} ${fileMonthStamp(report.lines)}.xlsm`;
+    const filename = `Monthly Service Report ${who} ${fileMonthStamp(report.lines,report.monthKey)}.xlsm`;
     logEvent("workbook.exported", "Exported a macro-preserving workbook.");
     return new NextResponse(new Uint8Array(file), {
       headers: {

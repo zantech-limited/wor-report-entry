@@ -1,3 +1,4 @@
+import { workOrderId } from "./work-order-id";
 export const SERVICE_TYPES = [
   "PM",
   "Per Call",
@@ -84,6 +85,7 @@ export type Report = {
   sourceFilename: string | null;
   createdAt: string;
   updatedAt: string;
+  monthKey?: string;
   prefixMap: PrefixEntry[];
   lines: WorkOrder[];
 };
@@ -168,7 +170,7 @@ const LINE_FIELDS: (keyof WorkOrder)[] = [
 
 export function blankLine(no = ""): WorkOrder {
   return {
-    id: crypto.randomUUID(),
+    id: workOrderId(),
     no,
     wor: "",
     date: "",
@@ -271,8 +273,8 @@ export function reportMonthLabel(lines: WorkOrder[]): string {
   return monthLabelFromDate(first);
 }
 
-export function fileMonthStamp(lines: WorkOrder[]): string {
-  const first = lines.find((line) => line.date)?.date;
+export function fileMonthStamp(lines: WorkOrder[],monthKey?:string): string {
+  const first = monthKey ? `${monthKey}-01` : lines.find((line) => line.date)?.date;
   const match = first ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(first) : null;
   if (!match) return "undated";
   const year = Number(match[1]);

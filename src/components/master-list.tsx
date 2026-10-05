@@ -7,20 +7,26 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { ArrowDown, ArrowUp, ArrowUpDown, RotateCcw } from "lucide-react";
 import type { WorkEntry } from "@/lib/model";
+import { monthLabelFromDate } from "@/lib/model";
+import { matchesDeskFilters, type DeskFilters } from "@/lib/desk-filters";
 
 const selectClass =
   "h-11 w-full rounded-lg border border-input bg-card px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
-export function MasterList({ entries }: { entries: WorkEntry[] }) {
+export function MasterList({ entries,initialFilters={} }: { entries: WorkEntry[];initialFilters?:DeskFilters }) {
+  const [linkedFilters,setLinkedFilters]=useState<DeskFilters>({...initialFilters,technician:undefined,status:undefined,month:undefined,service:undefined});
   const [query, setQuery] = useState("");
-  const [month, setMonth] = useState("");
-  const [tech, setTech] = useState("");
-  const [status, setStatus] = useState("");
+  const [month, setMonth] = useState(initialFilters.month==='undated'?'Undated':initialFilters.month?monthLabelFromDate(`${initialFilters.month}-01`):"");
+  const [tech, setTech] = useState(initialFilters.technician??"");
+  const [status, setStatus] = useState(initialFilters.status??"");
+  const [service,setService]=useState(initialFilters.service??"");
   const [sort, setSort] = useState<{ key: keyof WorkEntry; direction: 1 | -1 }>(
     { key: "date", direction: -1 },
   );
-  const filtered = !!(query || month || tech || status);
+  const filtered = !!(query || month || tech || status || service || Object.values(linkedFilters).some(Boolean));
   function resetFilters() {
+    setLinkedFilters({});
+    setService('');
     setQuery("");
     setMonth("");
     setTech("");
@@ -36,9 +42,9 @@ export function MasterList({ entries }: { entries: WorkEntry[] }) {
   const months = useMemo(
     () =>
       unique(
-        entries
+        [...entries
           .map((entry) => entry.monthLabel)
-          .filter((item) => item !== "Month not set"),
+          .filter((item) => item !== "Month not set"),...(entries.some(entry=>!entry.date)?['Undated']:[])],
       ),
     [entries],
   );
@@ -52,7 +58,7 @@ export function MasterList({ entries }: { entries: WorkEntry[] }) {
     [entries],
   );
   const statuses = useMemo(
-    () => unique(entries.map((entry) => entry.jobStatus).filter(Boolean)),
+    () => unique(entries.map((entry) => entry.jobStatus || '__blank__')),
     [entries],
   );
 
@@ -60,10 +66,12 @@ export function MasterList({ entries }: { entries: WorkEntry[] }) {
     const needle = query.trim().toLowerCase();
     return entries
       .filter((entry) => {
-        if (month && entry.monthLabel !== month) return false;
+        if(!matchesDeskFilters(entry,linkedFilters)) return false;
+        if (month && (month==='Undated'?!!entry.date:entry.monthLabel !== month)) return false;
         if (tech && entry.technician !== tech && entry.secondaryTech !== tech)
           return false;
-        if (status && entry.jobStatus !== status) return false;
+        if (status && entry.jobStatus !== (status==='__blank__'?'':status)) return false;
+        if(service && entry.serviceType!==(service==='__blank__'?'':service)) return false;
         if (!needle) return true;
         return [
           entry.customer,
@@ -94,7 +102,7 @@ export function MasterList({ entries }: { entries: WorkEntry[] }) {
               });
         return comparison * sort.direction;
       });
-  }, [entries, month, query, status, tech, sort]);
+  }, [entries, month, query, status, tech, sort,linkedFilters,service]);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
@@ -105,6 +113,7 @@ export function MasterList({ entries }: { entries: WorkEntry[] }) {
           edit it.
         </p>
       </header>
+      {Object.values(linkedFilters).some(Boolean) && <p className="rounded-xl border bg-accent p-4 text-sm">Linked filters: {Object.entries(linkedFilters).filter(([,value])=>value).map(([key,value])=>`${key}: ${value==='__blank__'?'Blank':value}`).join(' · ')}. Clear filters to view all work orders.</p>}
 
       <div className="grid gap-4 rounded-xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="grid gap-1.5 sm:col-span-2 lg:col-span-1">
@@ -138,6 +147,7 @@ export function MasterList({ entries }: { entries: WorkEntry[] }) {
           options={statuses}
           onChange={setStatus}
         />
+        <Filter id="master-service" label="Service type" value={service} options={unique(entries.map(entry=>entry.serviceType||'__blank__'))} onChange={setService}/>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -311,7 +321,7 @@ function Filter({
         <option value="">All</option>
         {options.map((option) => (
           <option key={option} value={option}>
-            {option}
+            {option==='__blank__'?'Blank':option}
           </option>
         ))}
       </select>

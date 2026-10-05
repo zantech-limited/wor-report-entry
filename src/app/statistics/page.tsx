@@ -1,6 +1,8 @@
 import { listWorkEntries } from "@/lib/db";
 import type { WorkEntry } from "@/lib/model";
 import { technicianHours } from "@/lib/reporting";
+import Link from "next/link";
+import { masterHref } from "@/lib/desk-filters";
 
 export const dynamic = "force-dynamic";
 
@@ -56,15 +58,18 @@ export default async function StatisticsPage() {
           <div className="grid gap-4 lg:grid-cols-2">
             <CountTable
               title="By job status"
+              filter="status"
               rows={counts(entries, (entry) => entry.jobStatus || "Blank")}
             />
             <CountTable
               title="By service type"
+              filter="service"
               rows={counts(entries, (entry) => entry.serviceType || "Blank")}
             />
           </div>
           <CountTable
             title="Hours by technician"
+            filter="technician"
             rows={technicianHours(entries)}
             valueLabel="Hours"
           />
@@ -101,10 +106,12 @@ function CountTable({
   title,
   rows,
   valueLabel = "Jobs",
+  filter,
 }: {
   title: string;
   rows: { label: string; value: string }[];
   valueLabel?: string;
+  filter:"status"|"service"|"technician";
 }) {
   return (
     <section className="rounded-xl border bg-card">
@@ -119,8 +126,8 @@ function CountTable({
         <tbody>
           {rows.map((row) => (
             <tr key={row.label} className="border-t">
-              <td className="px-4 py-2">{row.label}</td>
-              <td className="px-4 py-2">{row.value}</td>
+              <td className="px-4 py-2"><Link className="text-primary underline underline-offset-2" href={masterHref({[filter]:row.label==='Blank'?'__blank__':row.label})}>{row.label}</Link></td>
+              <td className="px-4 py-2"><Link className="text-primary underline underline-offset-2" href={masterHref({[filter]:row.label==='Blank'?'__blank__':row.label})}>{row.value}</Link></td>
             </tr>
           ))}
         </tbody>

@@ -22,6 +22,7 @@ const LINKS = [
   { href: "/statistics", label: "Statistics", icon: ChartNoAxesColumn },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/technicians", label: "Technicians", icon: Users },
+  { href: "/customers", label: "Customers", icon: Users },
   { href: "/parts", label: "Parts", icon: Package },
   { href: "/prefixes", label: "Prefixes", icon: ScanLine },
   { href: "/admin", label: "Admin", icon: Settings2 },

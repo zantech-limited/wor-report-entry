@@ -57,7 +57,7 @@ export function DuplicateNotice({
   const serial = duplicateKey(line.serialNo);
   const workbook =
     report.sourceFilename ||
-    `Monthly Service Report ${report.preparedBy || "Service desk"} ${fileMonthStamp(report.lines)}.xlsm`;
+    `Monthly Service Report ${report.preparedBy || "Service desk"} ${fileMonthStamp(report.lines,report.monthKey)}.xlsm`;
   const local = report.lines.flatMap((other, index) => {
     if (other.id === line.id) return [];
     const fields = duplicateFields(wor, serial, other);

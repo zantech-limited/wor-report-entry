@@ -1,4 +1,5 @@
 "use client";
+import { workbookMonth, monthBounds } from "@/lib/workbook-month";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -41,6 +42,7 @@ import {
   nextLineNo,
   prefixOf,
   reportMonthLabel,
+  monthLabelFromDate,
   timeTakenHours,
   type PrefixEntry,
   type Report,
@@ -101,7 +103,9 @@ export function ReportEditor({
   indexRef.current = index;
 
   const line = report.lines[index];
-  const month = reportMonthLabel(report.lines);
+  const month = report.monthKey ? monthLabelFromDate(`${report.monthKey}-01`) : reportMonthLabel(report.lines);
+  const lockedMonth=report.monthKey || workbookMonth(report.lines);
+  const dateBounds=monthBounds(lockedMonth);
   const sites = line ? locationsFor(line.customer, suggestions) : [];
 
   useEffect(() => {
@@ -253,12 +257,16 @@ export function ReportEditor({
   }
 
   function patchLine(partial: Partial<WorkOrder>) {
+    if(partial.date && lockedMonth && !partial.date.startsWith(`${lockedMonth}-`)) {
+      toast.error(`This workbook is locked to ${lockedMonth}. Start a new month for that date.`);
+      return;
+    }
     setReport((current) => {
       const lines = current.lines.slice();
       const currentLine = lines[indexRef.current];
       if (!currentLine) return current;
       lines[indexRef.current] = { ...currentLine, ...partial };
-      return { ...current, lines };
+      return { ...current, lines,monthKey:current.monthKey || workbookMonth(lines) };
     });
     scheduleSave();
   }
@@ -725,6 +733,8 @@ export function ReportEditor({
                   id="line-date"
                   label="Date"
                   type="date"
+                  min={dateBounds?.min}
+                  max={dateBounds?.max}
                   value={line.date}
                   onChange={(value) => patchLine({ date: value })}
                 />
@@ -1066,7 +1076,7 @@ export function ReportEditor({
               <p className="text-sm leading-6 text-muted-foreground">
                 Tab moves through the fields. Enter picks a highlighted name or
                 machine. Ctrl+S saves. Ctrl+Enter saves and opens the next work
-                order. Export uses {fileMonthStamp(report.lines)}.
+                order. Export uses {fileMonthStamp(report.lines,report.monthKey)}.
               </p>
             </>
           )}
@@ -1232,6 +1242,8 @@ function TextField({
   spellCheck,
   className,
   inputRef,
+  min,
+  max,
 }: {
   id: string;
   label: string;
@@ -1244,6 +1256,8 @@ function TextField({
   spellCheck?: boolean;
   className?: string;
   inputRef?: React.Ref<HTMLInputElement>;
+  min?:string;
+  max?:string;
 }) {
   return (
     <div className="grid gap-1.5">
@@ -1252,6 +1266,8 @@ function TextField({
         ref={inputRef}
         id={id}
         type={type}
+        min={min}
+        max={max}
         inputMode={inputMode}
         spellCheck={spellCheck}
         className={cn("h-11 text-base", className)}

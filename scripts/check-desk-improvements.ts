@@ -1,0 +1,64 @@
+import assert from 'node:assert/strict';
+import {workOrderId} from '../src/lib/work-order-id';
+import {blankLine,type WorkEntry} from '../src/lib/model';
+import {matchesDeskFilters,masterHref} from '../src/lib/desk-filters';
+import {monthBounds} from '../src/lib/workbook-month';
+import {similarCustomer} from '../src/lib/customer-names';
+async function main(){
+  assert(process.env.DATA_DIR?.includes('.checks'));
+  const cryptoDescriptor=Object.getOwnPropertyDescriptor(globalThis,'crypto');
+  Object.defineProperty(globalThis,'crypto',{configurable:true,value:{getRandomValues:(bytes:Uint8Array)=>{bytes.fill(14);return bytes;}}});
+  try {assert.match(workOrderId(),/^[a-f\d]{8}-[a-f\d]{4}-4[a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/);assert(blankLine().id);}
+  finally {if(cryptoDescriptor)Object.defineProperty(globalThis,'crypto',cryptoDescriptor);}
+  const entry={...blankLine(),date:'2026-10-05',technician:'Primary',secondaryTech:'Assistant',serviceType:'PM',jobStatus:'',reportId:'fixture',lineIndex:0,monthLabel:'Oct 2026',hours:null,revenue:null} as WorkEntry;
+  assert(matchesDeskFilters(entry,{technician:'Assistant',status:'__blank__',service:'PM',month:'2026-10'}));
+  assert(!matchesDeskFilters(entry,{month:'2026-11'}));
+  assert(matchesDeskFilters({...entry,date:''},{month:'undated',undated:'true',from:'2026-10-01'}));
+  assert(!matchesDeskFilters({...entry,date:''},{undated:'false'}));
+  assert(masterHref({service:'__blank__',customer:'A & B'}).includes('A+%26+B'));
+  assert.deepEqual(monthBounds('2024-02'),{min:'2024-02-01',max:'2024-02-29'});
+  assert(similarCustomer('Western Scientific Co.','Western Scientific CO'));
+  assert(similarCustomer('Example Services','Example Servces'));
+  assert(!similarCustomer('ABC','XYZ'));
+  const {createBlankReport,saveReport,getReport,getSuggestions,importWorkbook}=await import('../src/lib/db');
+  const {database}=await import('../src/lib/storage');
+  const {saveCustomer,listCustomers}=await import('../src/lib/customers');
+  const {createBackup,restoreBackup}=await import('../src/lib/backups');
+  const {readFileSync}=await import('node:fs');
+  const {writeWorkbook}=await import('../src/lib/excel');
+  const report=await createBlankReport();
+  report.lines=[{...blankLine('1'),date:'2026-10-05',customer:'Example Services',location:'Site A'},
+    {...blankLine('2'),date:'2026-10-07',customer:'Example Servces',location:'Site B'}];
+  await saveReport(report.id,report);
+  assert.equal((await getReport(report.id))?.monthKey,'2026-10');
+  report.lines.push({...blankLine('3'),date:'2026-11-01'});
+  await assert.rejects(saveReport(report.id,report),/locked to 2026-10/);
+  report.lines.pop();
+  report.lines[0].date='';report.lines[1].date='';
+  await saveReport(report.id,report);
+  assert.equal((await getReport(report.id))?.monthKey,'2026-10');
+  report.lines[0].date='2026-11-01';
+  await assert.rejects(saveReport(report.id,report),/locked/);
+  report.lines[0].date='2026-10-08';
+  await saveReport(report.id,report);
+  await saveCustomer({name:'Example Services',active:true,names:['Example Services','Example Servces'],preferred:'Example Services'});
+  const suggestions=await getSuggestions();
+  assert(suggestions.customers.includes('Example Services'));
+  assert(!suggestions.customers.includes('Example Servces'));
+  assert.deepEqual(suggestions.locationsByCustomer['Example Services'],['Site A','Site B']);
+  assert.deepEqual(suggestions.customers,[...suggestions.customers].sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'})));
+  assert.equal((await getReport(report.id))?.lines[1].customer,'Example Servces');
+  assert((await listCustomers()).find(c=>c.name==='Example Servces')?.preferred==='Example Services');
+  const imported={...report,lines:[{...blankLine('1'),date:'2026-10-01'},{...blankLine('2'),date:'2026-11-01'}]};
+  const existing=await importWorkbook(await writeWorkbook(readFileSync('templates/monthly-service-report.xlsm'),imported),'legacy-mixed.xlsm');
+  existing.lines[1].comments='Keep the old date';
+  await saveReport(existing.id,existing);
+  const backup=await createBackup();
+  await restoreBackup(backup);
+  const copies=(await (await database()).query('SELECT id FROM reports WHERE id <> ?',[report.id]));
+  assert(copies.length>=3);
+  assert((await getReport(String(copies[0].id)))?.monthKey);
+  console.log('desk improvements passed: HTTP UUID fallback, drill-down filters, leap-month bounds, persistent month lock, preserved imported dates, customer similarities/consolidation, alphabetical suggestions, historical names and backup settings');
+  await (await database()).close();
+}
+main().catch(e=>{console.error(e);process.exit(1)});

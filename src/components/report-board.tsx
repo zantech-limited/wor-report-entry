@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { filterReportEntries, technicianJobs } from "@/lib/reporting";
 import type { WorkEntry } from "@/lib/model";
+import Link from "next/link";
+import { masterHref, type DeskFilters } from "@/lib/desk-filters";
 
 const selectClass =
   "h-11 w-full rounded-lg border border-input bg-card px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
@@ -31,6 +33,7 @@ export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
   const [includeUndated, setIncludeUndated] = useState(true);
   const [showGraphs, setShowGraphs] = useState(true);
   const [metric, setMetric] = useState<"jobs" | "hours">("jobs");
+  const href=(filters:DeskFilters)=>masterHref({from:start,to:end,undated:String(includeUndated),...filters});
   const filtered = useMemo(
     () => filterReportEntries(entries, start, end, includeUndated),
     [entries, start, end, includeUndated],
@@ -167,7 +170,7 @@ export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
               rows={months
                 .slice(0, 12)
                 .reverse()
-                .map((row) => ({ label: row.month, value: row[metric] }))}
+                .map((row) => ({ label: row.month, value: row[metric],href:href({month:row.key==='Undated'?'undated':row.key}) }))}
               unit={metric === "hours" ? "h" : "jobs"}
             />
             <p className="text-xs text-muted-foreground">
@@ -180,7 +183,7 @@ export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
             <BarGraph
               rows={services
                 .slice(0, 10)
-                .map(([label, value]) => ({ label, value }))}
+                .map(([label, value]) => ({ label, value,href:href({service:label==='Unspecified'?'__blank__':label}) }))}
               unit="jobs"
             />
             <p className="text-xs text-muted-foreground">
@@ -210,6 +213,7 @@ export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
         {tech ? (
           <Summary
             title={`${tech}`}
+            href={href({technician:tech})}
             jobs={techJobs.length}
             hours={sumHours(techJobs)}
             customers={
@@ -227,6 +231,7 @@ export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
           entries={techJobs.slice(0, 12)}
           empty="No jobs for this technician."
         />
+        <Link className="text-sm text-primary underline" href={href({technician:tech})}>View all {techJobs.length} technician work orders</Link>
       </section>
 
       <section className="grid gap-4 rounded-xl border bg-card p-4 sm:p-5">
@@ -251,6 +256,7 @@ export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
         {customer ? (
           <Summary
             title={customer}
+            href={href({customer})}
             jobs={customerJobs.length}
             hours={sumHours(customerJobs)}
             customers={
@@ -268,6 +274,7 @@ export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
           entries={customerJobs.slice(0, 12)}
           empty="No jobs for this customer."
         />
+        <Link className="text-sm text-primary underline" href={href({customer})}>View all {customerJobs.length} customer work orders</Link>
       </section>
 
       <section className="rounded-xl border bg-card">
@@ -285,10 +292,10 @@ export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
             <tbody>
               {months.map((row) => (
                 <tr key={row.month} className="border-t">
-                  <td className="px-4 py-2">{row.month}</td>
-                  <td className="px-4 py-2">{row.jobs}</td>
-                  <td className="px-4 py-2">{row.hours.toFixed(1)}</td>
-                  <td className="px-4 py-2">{row.customers}</td>
+                  <td className="px-4 py-2"><Link className="text-primary underline" href={href({month:row.key==='Undated'?'undated':row.key})}>{row.month}</Link></td>
+                  <td className="px-4 py-2"><Link className="text-primary underline" href={href({month:row.key==='Undated'?'undated':row.key})}>{row.jobs}</Link></td>
+                  <td className="px-4 py-2"><Link className="text-primary underline" href={href({month:row.key==='Undated'?'undated':row.key})}>{row.hours.toFixed(1)}</Link></td>
+                  <td className="px-4 py-2"><Link className="text-primary underline" href={href({month:row.key==='Undated'?'undated':row.key})}>{row.customers}</Link></td>
                 </tr>
               ))}
             </tbody>
@@ -306,6 +313,7 @@ function Summary({
   customers,
   customersLabel = "Customers",
   note,
+  href,
 }: {
   title: string;
   jobs: number;
@@ -313,22 +321,23 @@ function Summary({
   customers: number;
   customersLabel?: string;
   note?: string;
+  href:string;
 }) {
   return (
     <div>
-      <h2 className="text-base font-semibold">{title}</h2>
+      <h2 className="text-base font-semibold"><Link className="text-primary underline" href={href}>{title}</Link></h2>
       <dl className="mt-3 grid gap-3 sm:grid-cols-3">
         <div>
           <dt className="text-sm text-muted-foreground">Jobs</dt>
-          <dd className="text-2xl font-semibold">{jobs}</dd>
+          <dd className="text-2xl font-semibold"><Link className="text-primary underline" href={href}>{jobs}</Link></dd>
         </div>
         <div>
           <dt className="text-sm text-muted-foreground">Hours</dt>
-          <dd className="text-2xl font-semibold">{hours.toFixed(1)}</dd>
+          <dd className="text-2xl font-semibold"><Link className="text-primary underline" href={href}>{hours.toFixed(1)}</Link></dd>
         </div>
         <div>
           <dt className="text-sm text-muted-foreground">{customersLabel}</dt>
-          <dd className="text-2xl font-semibold">{customers}</dd>
+          <dd className="text-2xl font-semibold"><Link className="text-primary underline" href={href}>{customers}</Link></dd>
         </div>
       </dl>
       {note && <p className="mt-2 text-sm text-muted-foreground">{note}</p>}
@@ -340,7 +349,7 @@ function BarGraph({
   rows,
   unit,
 }: {
-  rows: { label: string; value: number }[];
+  rows: { label: string; value: number;href:string }[];
   unit: string;
 }) {
   const max = Math.max(1, ...rows.map((row) => row.value));
@@ -355,8 +364,8 @@ function BarGraph({
       {rows.map((row) => (
         <li
           key={row.label}
-          className="grid grid-cols-[100px_1fr_65px] items-center gap-3"
         >
+          <Link href={row.href} className="grid grid-cols-[100px_1fr_65px] items-center gap-3 rounded-md p-1 hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring" aria-label={`View ${row.label}: ${row.value} ${unit}`}>
           <span className="truncate text-xs" title={row.label}>
             {row.label}
           </span>
@@ -372,6 +381,7 @@ function BarGraph({
           <span className="text-right text-xs tabular-nums text-muted-foreground">
             {unit === "h" ? row.value.toFixed(1) : row.value} {unit}
           </span>
+          </Link>
         </li>
       ))}
     </ul>
@@ -398,8 +408,8 @@ function JobTable({ entries, empty }: { entries: WorkEntry[]; empty: string }) {
               key={`${entry.reportId}-${entry.lineIndex}`}
               className="border-t"
             >
-              <td className="py-2 pr-3">{entry.date || "—"}</td>
-              <td className="py-2 pr-3">{entry.customer || "—"}</td>
+              <td className="py-2 pr-3"><Link className="text-primary underline" href={`/?report=${entry.reportId}&line=${entry.lineIndex}`}>{entry.date || "—"}</Link></td>
+              <td className="py-2 pr-3"><Link className="text-primary underline" href={`/?report=${entry.reportId}&line=${entry.lineIndex}`}>{entry.customer || "—"}</Link></td>
               <td className="py-2 pr-3">{entry.location || "—"}</td>
               <td className="py-2">
                 {entry.hours == null ? "—" : entry.hours.toFixed(2)}
@@ -432,6 +442,7 @@ function monthRows(entries: WorkEntry[]) {
   return [...map.entries()]
     .sort((a, b) => b[0].localeCompare(a[0]))
     .map(([key, row]) => ({
+      key,
       month: key === "Undated" ? key : labelMonth(key),
       jobs: row.jobs,
       hours: row.hours,
