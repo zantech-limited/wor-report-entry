@@ -53,3 +53,7 @@ Browser regression checks passed: selecting multiple months retained the current
 ## Parts most-used sorting
 
 Parts includes Part number and Most used sort options for all users. Most used orders by recorded part-line usage descending, with part number breaking ties. Browser checks confirmed descending counts (21, 21, 11, 8, 7), search combined with sorting, and switching back to part-number order. ESLint, TypeScript, and the Docker production build passed.
+
+## Clickable part usage
+
+Each Used X times count links to Master with an exact part-number filter. Matching ignores case and surrounding spaces and checks every newline-separated part number. Regression checks reject prefix-only matches. Browser verification for FC0-5080-000 opened 21 matching work orders; Clear filters restored all 1328 preview orders. A work order appears once even if its parts cell repeats the part number. Reporting regressions, TypeScript, ESLint, and Docker production build passed.

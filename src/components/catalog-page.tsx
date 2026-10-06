@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Part } from "@/lib/parts-model";
+import { masterHref } from "@/lib/desk-filters";
 import type { PrefixEntry, ReportSummary } from "@/lib/model";
 
 type Technician = { name: string; active: boolean };
@@ -399,7 +400,7 @@ export function CatalogPage({ kind }: { kind: Kind }) {
                         {p.partNo}
                       </p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {p.description} · Used {p.usageCount ?? 0} {(p.usageCount ?? 0) === 1 ? "time" : "times"}
+                        {p.description} · <Link className="text-primary underline underline-offset-2" href={masterHref({part:p.partNo})} aria-label={`View work orders using ${p.partNo}`}>Used {p.usageCount ?? 0} {(p.usageCount ?? 0) === 1 ? "time" : "times"}</Link>
                         {!p.active ? " · Archived" : ""}
                       </p>
                       {p.needsConsolidation && (

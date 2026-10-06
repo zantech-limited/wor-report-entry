@@ -115,6 +115,7 @@ export type Suggestions = {
 };
 
 export type WorkEntry = {
+  partNo?: string;
   reportId: string;
   lineIndex: number;
   monthLabel: string;

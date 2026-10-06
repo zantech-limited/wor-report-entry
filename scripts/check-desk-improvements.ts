@@ -13,6 +13,8 @@ async function main(){
   const entry={...blankLine(),date:'2026-10-05',technician:'Primary',secondaryTech:'Assistant',serviceType:'PM',jobStatus:'',reportId:'fixture',lineIndex:0,monthLabel:'Oct 2026',hours:null,revenue:null} as WorkEntry;
   assert(matchesDeskFilters(entry,{technician:'Assistant',status:'__blank__',service:'PM',month:'2026-10'}));
   assert(!matchesDeskFilters(entry,{month:'2026-11'}));
+  assert(matchesDeskFilters({...entry,partNo:'OTHER\r\n FC0-5080-000 '},{part:'fc0-5080-000'}));
+  assert(!matchesDeskFilters({...entry,partNo:'FC0-5080-0000'},{part:'FC0-5080-000'}));
   assert(matchesDeskFilters({...entry,date:''},{month:'undated',undated:'true',from:'2026-10-01'}));
   assert(!matchesDeskFilters({...entry,date:''},{undated:'false'}));
   assert(masterHref({service:'__blank__',customer:'A & B'}).includes('A+%26+B'));

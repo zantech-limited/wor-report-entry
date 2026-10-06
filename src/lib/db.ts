@@ -224,6 +224,7 @@ export async function listWorkEntries(): Promise<WorkEntry[]> {
         serialNo: line.serialNo,
         technician: line.technician,
         secondaryTech: line.secondaryTech,
+        partNo: line.partNo,
         hours: timeTakenHours(line.arrivalTime, line.departureTime),
         jobStatus: line.jobStatus,
         revenue:
