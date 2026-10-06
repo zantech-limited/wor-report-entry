@@ -57,3 +57,11 @@ Parts includes Part number and Most used sort options for all users. Most used o
 ## Clickable part usage
 
 Each Used X times count links to Master with an exact part-number filter. Matching ignores case and surrounding spaces and checks every newline-separated part number. Regression checks reject prefix-only matches. Browser verification for FC0-5080-000 opened 21 matching work orders; Clear filters restored all 1328 preview orders. A work order appears once even if its parts cell repeats the part number. Reporting regressions, TypeScript, ESLint, and Docker production build passed.
+
+## v0.3.2 Copycount, bulk import and duplicate WOR filter
+
+Copycount uses thousands separators in Entry (on leaving the field) and the Master list. Excel export retains a numeric value and clones the existing Copycount style with built-in #,##0 number format, preserving other style properties. Round-trip checks verify the numeric value, number format and byte-identical macros.
+
+Import workbooks accepts multiple XLSM/XLSX files, uploads each sequentially, shows filename/progress and per-file results, and continues on failure. Browser testing selected two disposable valid workbooks with an invalid workbook between them; both valid files imported successfully and the failure appeared in the result list.
+
+Master tags repeated nonblank/non-N/A WOR values across saved workbooks and offers Duplicate WOR numbers only. No. is ignored. Duplicate counts remain global when other filters narrow the view. Browser checks showed two matching QA orders while excluding two N/A rows, and unchecking the filter restored all four QA rows. Replacing Copycount with 9876543 displayed 9,876,543 in Entry and Master. Disposable imported reports were removed afterward. ESLint, TypeScript, reporting checks and the final v0.3.2 Docker production build passed.

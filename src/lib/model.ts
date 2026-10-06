@@ -115,6 +115,7 @@ export type Suggestions = {
 };
 
 export type WorkEntry = {
+  copycount?: string;
   partNo?: string;
   reportId: string;
   lineIndex: number;

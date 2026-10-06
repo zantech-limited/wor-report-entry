@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import JSZip from "jszip";
 import { parseWorkbook, writeWorkbook } from "../src/lib/excel";
 import { blankLine, type Report } from "../src/lib/model";
+import { formatCopycount } from "../src/lib/copycount";
 
 async function main() {
 const source = readFileSync("templates/monthly-service-report.xlsm");
@@ -31,6 +32,7 @@ const report: Report = {
     {
       ...blankLine("1"),
       wor: "99999",
+      copycount: "1,234,567",
       date: "2026-08-20",
       customer: "Harbour Books",
       location: "San Juan",
@@ -38,7 +40,6 @@ const report: Report = {
       slaType: "Rental",
       modelNo: "IR ADV DX 4845i",
       serialNo: "4TV99999",
-      copycount: "10",
       technician: "Reggie",
       secondaryTech: "Andre",
       arrivalTime: "09:15",
@@ -73,6 +74,8 @@ for (const name of ["Master", "PrefixMap", "Service Type Dist.", "Weekly update"
 const again = await parseWorkbook(out);
 assert(again.preparedBy === "Timothy Adams", again.preparedBy);
 assert(again.lines.length === 1, `exported lines ${again.lines.length}`);
+assert(again.lines[0]?.copycount === "1234567", "copycount must remain numeric in Excel");
+assert(formatCopycount('1234567') === '1,234,567', "copycount comma formatting");
 assert(again.lines[0]?.customer === "Harbour Books", again.lines[0]?.customer ?? "");
 assert(again.lines[0]?.location === "San Juan", again.lines[0]?.location ?? "");
 assert(again.lines[0]?.technician === "Reggie", again.lines[0]?.technician ?? "");
@@ -86,6 +89,11 @@ assert(again.prefixMap.length === 149, `prefix length ${again.prefixMap.length}`
 
 const masterName = "xl/worksheets/sheet9.xml";
 const masterXml = await zip.file(masterName)!.async("string");
+const copyCell = masterXml.match(/<c r="[A-Z]+\d+"[^>]*s="(\d+)"[^>]*><v>1234567<\/v><\/c>/);
+assert(copyCell, "copycount numeric cell/style");
+const stylesXml = await zip.file('xl/styles.xml')!.async('string');
+const xfs = [...stylesXml.match(/<cellXfs[^>]*>([\s\S]*?)<\/cellXfs>/)![1].matchAll(/<xf\b[^>]*\/>|<xf\b[^>]*>[\s\S]*?<\/xf>/g)];
+assert(xfs[Number(copyCell![1])][0].includes('numFmtId="3"'), "copycount uses #,##0 Excel formatting");
 assert(masterXml.includes("Time Taken") || masterXml.includes("Harbour Books"), "master body");
 assert(masterXml.includes("Table2[[#This Row],[Departure Time]]"), "time formula");
 assert(masterXml.includes("(C7)") || masterXml.includes("C7"), "month formula");

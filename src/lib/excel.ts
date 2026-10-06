@@ -690,6 +690,23 @@ export async function writeWorkbook(base: Buffer | Uint8Array, report: Report): 
     throw new Error("Template Master sheet is missing Table2 headers.");
   }
   const styles = stylesFromSample(rows, header.row.r, header.columns);
+  if (header.columns.copycount) {
+    const styleXml = await mustText(zip, "xl/styles.xml");
+    const block = styleXml.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/);
+    if (!block) throw new Error("Workbook is missing cell formatting styles.");
+    const formats = [...block[1].matchAll(/<xf\b[^>]*\/>|<xf\b[^>]*>[\s\S]*?<\/xf>/g)].map(match => match[0]);
+    const original = formats[Number(styles.copycount ?? 0)];
+    if (!original) throw new Error("Copycount formatting style is missing.");
+    let grouped = original.replace(/\bnumFmtId="[^"]*"/, 'numFmtId="3"');
+    grouped = grouped.replace(/\sapplyNumberFormat="[^"]*"/, '');
+    grouped = grouped.replace('<xf ', '<xf applyNumberFormat="1" ');
+    const existing = formats.indexOf(grouped);
+    styles.copycount = String(existing >= 0 ? existing : formats.length);
+    if (existing < 0) {
+      const next = block[0].replace(/count="\d+"/, `count="${formats.length + 1}"`).replace('</cellXfs>', `${grouped}</cellXfs>`);
+      zip.file("xl/styles.xml", styleXml.replace(block[0], next));
+    }
+  }
   const prepared = preparedByFrom(rows);
   const title = titleFrom(rows);
   const lines = report.lines.filter((line) => !isBlankLine(line));

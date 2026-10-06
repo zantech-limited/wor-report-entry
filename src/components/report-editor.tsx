@@ -1,5 +1,6 @@
 "use client";
 import { workbookMonth, monthBounds } from "@/lib/workbook-month";
+import { formatCopycount } from "@/lib/copycount";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -71,7 +72,7 @@ export function ReportEditor({
   initialParts?: Part[];
 }) {
   const router = useRouter();
-  const [report, setReport] = useState(initial);
+  const [report, setReport] = useState(() => ({...initial, lines: initial.lines.map(line => ({...line, copycount: formatCopycount(line.copycount)}))}));
   const [selectedMonth, setSelectedMonth] = useState(initial.id);
   const [openingMonth, setOpeningMonth] = useState(false);
   const [suggestions, setSuggestions] = useState(initialSuggestions);
@@ -892,6 +893,7 @@ export function ReportEditor({
                   id="line-copycount"
                   label="Copycount"
                   value={line.copycount}
+                  onBlur={(value) => { const formatted=formatCopycount(value); if(formatted!==value) patchLine({copycount:formatted}); }}
                   onChange={(value) => patchLine({ copycount: value })}
                 />
               </Section>

@@ -9,6 +9,8 @@ import { ArrowDown, ArrowUp, ArrowUpDown, RotateCcw } from "lucide-react";
 import type { WorkEntry } from "@/lib/model";
 import { monthLabelFromDate } from "@/lib/model";
 import { matchesDeskFilters, type DeskFilters } from "@/lib/desk-filters";
+import { duplicateKey } from "@/lib/duplicates";
+import { formatCopycount } from "@/lib/copycount";
 
 const selectClass =
   "h-11 w-full rounded-lg border border-input bg-card px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
@@ -20,11 +22,18 @@ export function MasterList({ entries,initialFilters={} }: { entries: WorkEntry[]
   const [tech, setTech] = useState(initialFilters.technician??"");
   const [status, setStatus] = useState(initialFilters.status??"");
   const [service,setService]=useState(initialFilters.service??"");
+  const [duplicatesOnly, setDuplicatesOnly] = useState(false);
+  const worCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const entry of entries) { const key=duplicateKey(entry.wor); if(key) counts.set(key,(counts.get(key)??0)+1); }
+    return counts;
+  },[entries]);
   const [sort, setSort] = useState<{ key: keyof WorkEntry; direction: 1 | -1 }>(
     { key: "date", direction: -1 },
   );
-  const filtered = !!(query || month || tech || status || service || Object.values(linkedFilters).some(Boolean));
+  const filtered = !!(duplicatesOnly || query || month || tech || status || service || Object.values(linkedFilters).some(Boolean));
   function resetFilters() {
+    setDuplicatesOnly(false);
     setLinkedFilters({});
     setService('');
     setQuery("");
@@ -66,6 +75,7 @@ export function MasterList({ entries,initialFilters={} }: { entries: WorkEntry[]
     const needle = query.trim().toLowerCase();
     return entries
       .filter((entry) => {
+        if(duplicatesOnly && (worCounts.get(duplicateKey(entry.wor))??0)<2) return false;
         if(!matchesDeskFilters(entry,linkedFilters)) return false;
         if (month && (month==='Undated'?!!entry.date:entry.monthLabel !== month)) return false;
         if (tech && entry.technician !== tech && entry.secondaryTech !== tech)
@@ -102,7 +112,7 @@ export function MasterList({ entries,initialFilters={} }: { entries: WorkEntry[]
               });
         return comparison * sort.direction;
       });
-  }, [entries, month, query, status, tech, sort,linkedFilters,service]);
+  }, [entries, month, query, status, tech, sort,linkedFilters,service,duplicatesOnly,worCounts]);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
@@ -115,6 +125,7 @@ export function MasterList({ entries,initialFilters={} }: { entries: WorkEntry[]
       </header>
       {Object.values(linkedFilters).some(Boolean) && <p className="rounded-xl border bg-accent p-4 text-sm">Linked filters: {Object.entries(linkedFilters).filter(([,value])=>value).map(([key,value])=>`${key}: ${value==='__blank__'?'Blank':value}`).join(' · ')}. Clear filters to view all work orders.</p>}
 
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={duplicatesOnly} onChange={event=>setDuplicatesOnly(event.target.checked)}/>Duplicate WOR numbers only</label>
       <div className="grid gap-4 rounded-xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="grid gap-1.5 sm:col-span-2 lg:col-span-1">
           <Label htmlFor="master-search">Search</Label>
@@ -196,6 +207,7 @@ export function MasterList({ entries,initialFilters={} }: { entries: WorkEntry[]
                       ? ` · ${entry.hours.toFixed(2)} h`
                       : ""}
                   </span>
+                  <span className="mt-1 block text-xs text-muted-foreground">Copycount: {formatCopycount(entry.copycount ?? '') || '—'}{(worCounts.get(duplicateKey(entry.wor))??0)>1 ? ` · Duplicate WOR ${entry.wor}` : ''}</span>
                 </Link>
               </li>
             ))}
@@ -210,6 +222,7 @@ export function MasterList({ entries,initialFilters={} }: { entries: WorkEntry[]
                       ["date", "Date"],
                       ["location", "Location"],
                       ["serialNo", "Serial"],
+                      ["copycount", "Copycount"],
                       ["technician", "Technician"],
                       ["jobStatus", "Status"],
                       ["hours", "Hours"],
@@ -260,6 +273,7 @@ export function MasterList({ entries,initialFilters={} }: { entries: WorkEntry[]
                       </Link>
                       <span className="block text-xs text-muted-foreground">
                         {entry.wor ? `WOR ${entry.wor}` : "No WOR"}
+                        {(worCounts.get(duplicateKey(entry.wor))??0)>1 && <span className="ml-2 text-amber-800">Duplicate WOR · {worCounts.get(duplicateKey(entry.wor))} orders</span>}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -274,6 +288,7 @@ export function MasterList({ entries,initialFilters={} }: { entries: WorkEntry[]
                         {entry.modelNo}
                       </span>
                     </td>
+                    <td className="px-4 py-3">{formatCopycount(entry.copycount ?? '') || '—'}</td>
                     <td className="px-4 py-3">{entry.technician || "—"}</td>
                     <td className="px-4 py-3">
                       <span

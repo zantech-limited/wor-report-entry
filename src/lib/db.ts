@@ -225,6 +225,7 @@ export async function listWorkEntries(): Promise<WorkEntry[]> {
         technician: line.technician,
         secondaryTech: line.secondaryTech,
         partNo: line.partNo,
+        copycount: line.copycount,
         hours: timeTakenHours(line.arrivalTime, line.departureTime),
         jobStatus: line.jobStatus,
         revenue:
