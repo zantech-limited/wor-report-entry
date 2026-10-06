@@ -51,6 +51,7 @@ export function CatalogPage({ kind }: { kind: Kind }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
+  const [partSort, setPartSort] = useState("number");
   const [parts, setParts] = useState<Part[]>([]);
   const [partTotals, setPartTotals] = useState({ totalUses: 0, usedPartNumbers: 0 });
   const [part, setPart] = useState(emptyPart);
@@ -349,6 +350,20 @@ export function CatalogPage({ kind }: { kind: Kind }) {
                 onChange={setSearch}
               />
             </div>
+            {kind === "parts" && (
+              <div className="grid gap-2">
+                <Label htmlFor="parts-sort">Sort parts</Label>
+                <select
+                  id="parts-sort"
+                  className="h-11 rounded-lg border border-input bg-card px-3 text-base"
+                  value={partSort}
+                  onChange={(event) => setPartSort(event.target.value)}
+                >
+                  <option value="number">Part number</option>
+                  <option value="usage">Most used</option>
+                </select>
+              </div>
+            )}
             {kind !== "prefixes" && (
               <label className="flex min-h-11 items-center gap-2 text-sm">
                 <input
@@ -369,6 +384,10 @@ export function CatalogPage({ kind }: { kind: Kind }) {
                     `${p.partNo} ${p.description}`
                       .toLowerCase()
                       .includes(search.toLowerCase()),
+                )
+                .sort((a, b) =>
+                  (partSort === "usage" ? (b.usageCount ?? 0) - (a.usageCount ?? 0) : 0) ||
+                  a.partNo.localeCompare(b.partNo, undefined, { numeric: true, sensitivity: "base" }),
                 )
                 .map((p) => (
                   <li

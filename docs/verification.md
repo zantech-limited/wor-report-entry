@@ -49,3 +49,7 @@ Customers is publicly readable and alphabetical, with manual Admin editing/remov
 
 The Month select previously navigated on change while its controlled value remained the current report, briefly resetting the selection and remounting the editor. It now keeps a pending selection and switches only through Open month, after saving current edits. The active workbook option uses the current month/preparer/order count. Native select Alt+Up/Down keys are no longer intercepted by the work-order navigation shortcuts; before the fix, Alt+Down on Month advanced the selected work order.
 Browser regression checks passed: selecting multiple months retained the current URL and selected choice; Open month loaded July and then October; Alt+Down on Month kept the work-order index at 0. The final Docker production build, ESLint and TypeScript passed.
+
+## Parts most-used sorting
+
+Parts includes Part number and Most used sort options for all users. Most used orders by recorded part-line usage descending, with part number breaking ties. Browser checks confirmed descending counts (21, 21, 11, 8, 7), search combined with sorting, and switching back to part-number order. ESLint, TypeScript, and the Docker production build passed.
