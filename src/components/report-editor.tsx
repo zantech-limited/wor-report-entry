@@ -72,6 +72,8 @@ export function ReportEditor({
 }) {
   const router = useRouter();
   const [report, setReport] = useState(initial);
+  const [selectedMonth, setSelectedMonth] = useState(initial.id);
+  const [openingMonth, setOpeningMonth] = useState(false);
   const [suggestions, setSuggestions] = useState(initialSuggestions);
   const [index, setIndex] = useState(initialIndex);
   const [status, setStatus] = useState<SaveStatus>("saved");
@@ -169,6 +171,11 @@ export function ReportEditor({
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       const key = event.key.toLowerCase();
+      if (
+        event.target instanceof HTMLSelectElement &&
+        event.altKey &&
+        (event.key === "ArrowDown" || event.key === "ArrowUp")
+      ) return;
       if ((event.metaKey || event.ctrlKey) && key === "s") {
         event.preventDefault();
         void persist();
@@ -568,26 +575,41 @@ export function ReportEditor({
         {months.length > 1 && (
           <div className="grid max-w-md gap-1.5">
             <Label htmlFor="month-switch">Month</Label>
+            <div className="flex items-center gap-2">
             <select
               id="month-switch"
               className={selectClass}
-              value={report.id}
-              onChange={(event) => {
-                const next = event.target.value;
+              value={selectedMonth}
+              disabled={openingMonth}
+              onChange={(event) => setSelectedMonth(event.target.value)}
+            >
+              {months.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.id === report.id ? month : item.monthLabel} · {item.id === report.id ? report.preparedBy || "No preparer" : item.preparedBy || "No preparer"} ·{" "}
+                  {item.id === report.id ? report.lines.length : item.lineCount} orders
+                </option>
+              ))}
+            </select>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={openingMonth || selectedMonth === report.id}
+              onClick={() => {
+                const next = selectedMonth;
+                setOpeningMonth(true);
                 void (async () => {
-                  if ((dirty.current || inFlight.current) && !(await persist()))
+                  if (!(await persist())) {
+                    setOpeningMonth(false);
                     return;
+                  }
                   router.push(`/?report=${next}`);
                 })();
               }}
             >
-              {months.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.monthLabel} · {item.preparedBy || "No preparer"} ·{" "}
-                  {item.lineCount} orders
-                </option>
-              ))}
-            </select>
+              {openingMonth ? "Opening…" : "Open month"}
+            </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Choose a workbook, then open it. Current changes are saved first.</p>
           </div>
         )}
         <div className="grid gap-4 sm:grid-cols-2">
