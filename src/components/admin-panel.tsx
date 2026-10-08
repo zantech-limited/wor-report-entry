@@ -13,7 +13,9 @@ import { Label } from "@/components/ui/label";
 import type { Part } from "@/lib/parts-model";
 
 type Config = {
-  engine: "sqlite" | "mysql" | "postgres";
+  engine: "sqlite" | "mysql" | "postgres" | "supabase";
+  databaseCode?: string;
+  ca?: string;
   host: string;
   port: number;
   database: string;
@@ -30,6 +32,7 @@ type Overview = {
   events: Event[];
   reportCount: number;
   environmentConfigured: boolean;
+  databaseIdentifier: string;
 };
 const initialConfig: Config = {
   engine: "sqlite",
@@ -112,7 +115,7 @@ export function AdminPanel() {
     setConfig((current) => ({ ...current, ...patch }));
     setConfirmMigration(false);
   }
-  async function storage(action: "test" | "migrate") {
+  async function storage(action: "test" | "migrate" | "connect") {
     const body = await request("/api/admin/storage", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -123,7 +126,7 @@ export function AdminPanel() {
       }),
     });
     setMessage(body.message);
-    if (action === "migrate") await load();
+    if (action === "migrate" || action === "connect") await load();
   }
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
@@ -212,7 +215,9 @@ export function AdminPanel() {
             <Metric
               label="Active storage"
               value={
-                overview?.activeEngine === "postgres"
+                overview?.activeEngine === "supabase"
+                  ? "Supabase"
+                  : overview?.activeEngine === "postgres"
                   ? "PostgreSQL"
                   : overview?.activeEngine === "mysql"
                     ? "MySQL"
@@ -352,10 +357,13 @@ export function AdminPanel() {
                   Storage connection
                 </h2>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  SQLite works locally. MySQL and PostgreSQL need an existing
-                  empty database and a user with table creation and read/write
-                  permissions.
+                  Copy this desk to an empty remote database, or connect another container to an existing shared database using its connection details and permanent code.
                 </p>
+              </div>
+              <div className="rounded-lg border bg-muted p-4">
+                <p className="text-sm font-medium">Permanent database identifier</p>
+                <p className="font-mono text-2xl tracking-widest">{overview?.databaseIdentifier}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Generated once and retained when migrating this database. This identifies the database; connection credentials are still required.</p>
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="storage-engine">Database engine</Label>
@@ -366,7 +374,8 @@ export function AdminPanel() {
                   onChange={(event) =>
                     updateConfig({
                       engine: event.target.value as Config["engine"],
-                      port: event.target.value === "postgres" ? 5432 : 3306,
+                      port: ['postgres','supabase'].includes(event.target.value) ? 5432 : 3306,
+                      ...(event.target.value==='supabase' ? {database:'postgres',tls:true} : {}),
                       password: "",
                       hasPassword: false,
                     })
@@ -375,10 +384,12 @@ export function AdminPanel() {
                   <option value="sqlite">SQLite · local file</option>
                   <option value="mysql">MySQL</option>
                   <option value="postgres">PostgreSQL</option>
+                  <option value="supabase">Supabase</option>
                 </select>
               </div>
               {config.engine !== "sqlite" ? (
                 <>
+                  {config.engine==='supabase' && <p className="rounded-lg bg-muted p-3 text-sm">Use the host, port, database, username and database password from Supabase → Connect → Session pooler. Use the database password, rather than an API key. TLS certificate verification stays enabled.</p>}
                   <div className="grid gap-4 sm:grid-cols-[1fr_100px]">
                     <Field
                       label="Host"
@@ -421,12 +432,16 @@ export function AdminPanel() {
                     <input
                       type="checkbox"
                       checked={config.tls}
+                      disabled={config.engine==='supabase'}
                       onChange={(event) =>
                         updateConfig({ tls: event.target.checked })
                       }
                     />
                     Use TLS with certificate verification
                   </label>
+                  {config.tls && <div className="grid gap-1.5"><Label htmlFor="storage-ca">TLS CA certificate (PEM, if required)</Label><textarea id="storage-ca" className="min-h-24 rounded-lg border bg-card p-3 font-mono text-xs" value={config.ca??''} onChange={event=>updateConfig({ca:event.target.value})}/><p className="text-xs text-muted-foreground">Paste the server root certificate supplied in Supabase Database settings if it is not trusted by this container.</p></div>}
+                  <Field id="storage-code" label="Existing database identifier (five digits)" value={config.databaseCode??''} onChange={value=>updateConfig({databaseCode:value.replace(/\D/g,'').slice(0,5)})}/>
+                  <p className="text-xs text-muted-foreground">For another container, enter the code shown in the original instance&apos;s Admin page. Joining uses the shared data directly and does not upload this container&apos;s local data. Refresh pages to see other instances&apos; updates.</p>
                 </>
               ) : (
                 <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
@@ -441,6 +456,7 @@ export function AdminPanel() {
                 never shown in logs or returned by this page.
               </p>
               <div className="flex flex-wrap gap-2">
+                {config.engine!=='sqlite' && <Button variant="outline" disabled={!!pending || overview?.writesPaused || overview?.environmentConfigured || !/^\d{5}$/.test(config.databaseCode??'')} onClick={()=>void act('connect',()=>storage('connect'))}>Connect to existing database</Button>}
                 <Button
                   variant="outline"
                   disabled={!!pending || overview?.writesPaused}

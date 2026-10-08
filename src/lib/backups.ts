@@ -288,6 +288,8 @@ function digest(backup: Backup) {
 export async function migrateStorage(config: StorageConfig) {
   await whenReady();
   const source = await database();
+  const sourceCode=await (await import('./database-identity')).databaseIdentifier(source);
+  if(config.databaseCode && config.databaseCode!==sourceCode) throw new Error('Database identifier must match the current database when copying data.');
   if (config.engine === "sqlite")
     throw new Error(
       "To return to SQLite, restart with DB_ENGINE=sqlite and restore a downloaded backup. Migration destinations must be MySQL or PostgreSQL.",
@@ -326,7 +328,7 @@ export async function migrateStorage(config: StorageConfig) {
             "Migration verification failed; destination changes were rolled back.",
           );
       });
-      saveConfig(config);
+      saveConfig({...config,databaseCode:sourceCode});
       pauseWrites();
       logEvent(
         "storage.migrated",

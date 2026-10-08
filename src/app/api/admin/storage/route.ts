@@ -9,6 +9,8 @@ import {
 } from "@/lib/storage";
 import { migrateStorage } from "@/lib/backups";
 import { logEvent } from "@/lib/events";
+import { verifyDatabaseIdentifier } from "@/lib/database-identity";
+import { connectExistingStorage } from "@/lib/shared-storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +39,7 @@ export async function POST(request: Request) {
         const test = new Storage(config);
         try {
           await test.query("SELECT 1 AS ok");
+          if(config.databaseCode) await verifyDatabaseIdentifier(test,config.databaseCode);
         } finally {
           await test.close();
         }
@@ -57,13 +60,18 @@ export async function POST(request: Request) {
         ...result,
       });
     }
+    if (body.action === "connect") {
+      const code=await connectExistingStorage(config);
+      logEvent('storage.connected','Verified shared database connection. Restart required.');
+      return NextResponse.json({message:`Shared database ${code} verified. Restart this container to use it. Local data was not copied or removed; writes are paused until restart.`});
+    }
     throw new Error("Use Test connection or Copy data and switch on restart.");
   } catch (error) {
     // Driver errors may contain credentials or connection details; never return them.
     logEvent("storage.error", "A storage operation failed.", "error");
     const message =
       error instanceof Error &&
-      /^(The destination|Migration verification|To return|Storage |Use Test|Host,|Port |Choose |Invalid |Enter )/.test(
+      /^(The destination|Migration verification|To return|Storage |Use Test|Host,|Port |Choose |Invalid |Enter |Database identifier|Shared connection|Supabase requires)/.test(
         error.message,
       )
         ? error.message

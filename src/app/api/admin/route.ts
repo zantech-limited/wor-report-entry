@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { database, readConfig, writesPaused } from "@/lib/storage";
 import { recentEvents } from "@/lib/events";
 import { listReports } from "@/lib/db";
+import { databaseIdentifier } from "@/lib/database-identity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       config: { ...config, password: "", hasPassword: !!config.password },
       activeEngine: active.engine,
+      databaseIdentifier: await databaseIdentifier(await database()),
       writesPaused: writesPaused(),
       events: recentEvents(),
       reportCount: (await listReports()).length,
