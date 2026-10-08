@@ -11,6 +11,7 @@ import { migrateStorage } from "@/lib/backups";
 import { logEvent } from "@/lib/events";
 import { verifyDatabaseIdentifier } from "@/lib/database-identity";
 import { connectExistingStorage } from "@/lib/shared-storage";
+import { scheduleStorageRestart } from "@/lib/storage-restart";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,15 +56,18 @@ export async function POST(request: Request) {
       );
     if (body.action === "migrate") {
       const result = await migrateStorage(config);
+      const restartAt = scheduleStorageRestart();
       return NextResponse.json({
-        message: `${result.reports} months verified and copied. Restart the service desk to activate ${config.engine}. Writes are paused until restart.`,
+        message: `${result.reports} months verified and copied. ${restartAt ? "The desk will restart automatically in 20 seconds, then this page will refresh." : `Restart the service desk to activate ${config.engine}. Writes are paused until restart.`}`,
+        restartAt,
         ...result,
       });
     }
     if (body.action === "connect") {
       const code=await connectExistingStorage(config);
       logEvent('storage.connected','Verified shared database connection. Restart required.');
-      return NextResponse.json({message:`Shared database ${code} verified. Restart this container to use it. Local data was not copied or removed; writes are paused until restart.`});
+      const restartAt = scheduleStorageRestart();
+      return NextResponse.json({restartAt,message:`Shared database ${code} verified. ${restartAt ? "The desk will restart automatically in 20 seconds, then this page will refresh." : "Restart this container to use it."} Local data was not copied or removed; writes are paused until restart.`});
     }
     throw new Error("Use Test connection or Copy data and switch on restart.");
   } catch (error) {

@@ -33,6 +33,7 @@ type Overview = {
   reportCount: number;
   environmentConfigured: boolean;
   databaseIdentifier: string;
+  restartAt: number | null;
 };
 const initialConfig: Config = {
   engine: "sqlite",
@@ -73,6 +74,8 @@ export function AdminPanel() {
   const [partSearch, setPartSearch] = useState("");
   const [logFilter, setLogFilter] = useState("all");
   const [confirmMigration, setConfirmMigration] = useState(false);
+  const [restartAt, setRestartAt] = useState<number | null>(null);
+  const [restartSeconds, setRestartSeconds] = useState<number | null>(null);
   const restoreRef = useRef<HTMLInputElement>(null);
   const certificateRef = useRef<HTMLInputElement>(null);
   const storageName = config.engine === "supabase" ? "Supabase" : config.engine === "mysql" ? "MySQL" : "PostgreSQL";
@@ -97,6 +100,7 @@ export function AdminPanel() {
       request("/api/admin/parts"),
     ]);
     setOverview(next);
+    setRestartAt(next.restartAt ?? null);
     setConfig(next.config);
     setParts(catalog.parts);
     setConfirmMigration(false);
@@ -116,6 +120,33 @@ export function AdminPanel() {
       }
     })();
   }, []);
+  useEffect(() => {
+    if (!restartAt) return;
+    let stopped = false;
+    let polling = false;
+    const tick = async () => {
+      const remaining = Math.max(0, Math.ceil((restartAt - Date.now()) / 1000));
+      setRestartSeconds(remaining);
+      if (remaining || polling) return;
+      polling = true;
+      try {
+        const response = await fetch("/api/admin", { cache: "no-store", signal: AbortSignal.timeout(3000) });
+        if (response.ok) {
+          const status = await response.json();
+          if (!stopped && !status.writesPaused) window.location.reload();
+        }
+      } catch {
+        // A brief connection failure is expected while Docker restarts the desk.
+      } finally { polling = false; }
+      if (!stopped && Date.now() - restartAt > 120000) {
+        setError("The desk is taking longer to restart. Check the container status, then refresh this page.");
+        clearInterval(timer);
+      }
+    };
+    const timer = setInterval(() => void tick(), 1000);
+    void tick();
+    return () => { stopped = true; clearInterval(timer); };
+  }, [restartAt]);
   async function act(name: string, work: () => Promise<void>) {
     setPending(name);
     setError("");
@@ -189,6 +220,7 @@ export function AdminPanel() {
       >
         {message}
       </p>
+      {restartAt && <p role="status" aria-live="polite" className="rounded-xl border bg-accent p-4 text-sm">{restartSeconds === 0 ? "Restarting the desk… This page will refresh when the database is ready." : `Restarting automatically in ${restartSeconds ?? Math.max(0, Math.ceil((restartAt-Date.now())/1000))} seconds. This page will refresh when the database is ready.`}</p>}
       {checking ? (
         <p className="text-sm text-muted-foreground">
           Checking administrator session…
@@ -255,8 +287,7 @@ export function AdminPanel() {
               role="alert"
               className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
             >
-              Migration is prepared. Report and catalog changes are paused.
-              Restart the service desk to activate the saved storage settings.
+              {restartAt ? "Connection saved. Report and catalog changes are paused until the automatic restart finishes." : "Connection saved. Report and catalog changes are paused. Restart the service desk to activate the saved storage settings."}
             </p>
           )}
           <section className="grid gap-5 rounded-xl border bg-card p-5 shadow-sm sm:p-6">

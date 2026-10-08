@@ -8,6 +8,7 @@ services:
         required: false
     environment:
       DATA_DIR: /app/data
+      DESK_AUTO_RESTART: "true"
     volumes:
       - reports:/app/data
     restart: unless-stopped

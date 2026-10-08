@@ -4,6 +4,7 @@ import { database, readConfig, writesPaused } from "@/lib/storage";
 import { recentEvents } from "@/lib/events";
 import { listReports } from "@/lib/db";
 import { databaseIdentifier } from "@/lib/database-identity";
+import { storageRestartAt } from "@/lib/storage-restart";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export async function GET(request: Request) {
       activeEngine: active.engine,
       databaseIdentifier: await databaseIdentifier(await database()),
       writesPaused: writesPaused(),
+      restartAt: storageRestartAt(),
       events: recentEvents(),
       reportCount: (await listReports()).length,
       environmentConfigured: !!process.env.DB_ENGINE,
