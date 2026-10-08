@@ -66,42 +66,41 @@ async function seedFromTemplate(): Promise<void> {
 
 async function seedDirectory(directory: DirectoryCounts) {
   const db = await database();
-  const stmt = db.prepare(`
-    INSERT INTO suggestions (kind, parent, value, uses)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(kind, parent, value) DO UPDATE SET uses = MAX(uses, excluded.uses)
-  `);
+  const rows: (string | number)[][] = [];
   for (const [customer, uses] of directory.customers) {
-    await stmt.run("customer", "", customer, uses);
+    rows.push(["customer", "", customer, uses]);
   }
   for (const [customer, sites] of directory.locations) {
     for (const [location, uses] of sites) {
-      await stmt.run("location", customer, location, uses);
+      rows.push(["location", customer, location, uses]);
     }
   }
   for (const [tech, uses] of directory.techs) {
-    await stmt.run("tech", "", tech, uses);
+    rows.push(["tech", "", tech, uses]);
   }
+  await db.insertRows("INSERT INTO suggestions (kind, parent, value, uses)", rows,
+    "ON CONFLICT(kind, parent, value) DO UPDATE SET uses = MAX(uses, excluded.uses)");
 }
 
 export async function rememberFromLines(lines: WorkOrder[]) {
   await rememberParts(lines);
   const db = await database();
-  const stmt = db.prepare(`
-    INSERT INTO suggestions (kind, parent, value, uses)
-    VALUES (?, ?, ?, 1)
-    ON CONFLICT(kind, parent, value) DO NOTHING
-  `);
+  const rows = new Map<string, (string | number)[]>();
+  const remember = (kind: string, parent: string, value: string) => {
+    rows.set(JSON.stringify([kind, parent, value]), [kind, parent, value, 1]);
+  };
   for (const line of lines) {
     const customer = line.customer.trim();
     const location = line.location.trim();
-    if (customer) await stmt.run("customer", "", customer);
-    if (customer && location) await stmt.run("location", customer, location);
+    if (customer) remember("customer", "", customer);
+    if (customer && location) remember("location", customer, location);
     if (line.technician.trim())
-      await stmt.run("tech", "", line.technician.trim());
+      remember("tech", "", line.technician.trim());
     if (line.secondaryTech.trim())
-      await stmt.run("tech", "", line.secondaryTech.trim());
+      remember("tech", "", line.secondaryTech.trim());
   }
+  await db.insertRows("INSERT INTO suggestions (kind, parent, value, uses)", [...rows.values()],
+    "ON CONFLICT(kind, parent, value) DO NOTHING");
 }
 
 export async function getSuggestions(): Promise<Suggestions> {
@@ -268,7 +267,7 @@ export async function listReports(): Promise<ReportSummary[]> {
   const rows = (await (
     await database()
   )
-    .prepare("SELECT * FROM reports ORDER BY updated_at DESC")
+    .prepare("SELECT id, title, prepared_by, source_filename, created_at, updated_at, lines FROM reports ORDER BY updated_at DESC")
     .all()) as ReportRow[];
   const locks=new Map((await (await database()).query("SELECT key, value FROM meta WHERE key LIKE 'report-month:%'"))
     .map(row=>[String(row.key).slice(13),String(row.value)]));
@@ -280,7 +279,7 @@ export async function getReport(id: string): Promise<Report | null> {
   const row = (await (
     await database()
   )
-    .prepare("SELECT * FROM reports WHERE id = ?")
+    .prepare("SELECT id, title, prepared_by, source_filename, created_at, updated_at, prefix_map, lines FROM reports WHERE id = ?")
     .get(id)) as ReportRow | undefined;
   if(!row) return null;
   const report=rowToReport(row);

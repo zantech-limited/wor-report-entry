@@ -33,6 +33,8 @@ export async function partUsage() {
 }
 export async function rememberParts(lines: Pick<WorkOrder, "partNo" | "description" | "qty">[]) {
   const db = await database();
+  const rows = new Map<string, (string | number)[]>();
+  const now = new Date().toISOString();
   for (const line of lines) {
     const numbers = line.partNo.split(/\r?\n/);
     const descriptions = line.description.split(/\r?\n/);
@@ -46,15 +48,17 @@ export async function rememberParts(lines: Pick<WorkOrder, "partNo" | "descripti
       const quantity = quantities.length === numbers.length ? quantities[index].trim() : "";
       const defaultQty = /^\d+(\.\d+)?$/.test(quantity) && Number(quantity) > 0 ? quantity : "1";
       // Saved work orders never overwrite curated descriptions or reactivate archived parts.
-      if (await db.prepare("SELECT part_no FROM parts WHERE part_no = ?").get(partNo)) continue;
-      await db.query("INSERT INTO parts (part_no, description, default_qty, active, updated_at) VALUES (?, ?, ?, ?, ?)",
-        [partNo, description, defaultQty, 1, new Date().toISOString()]);
+      if (!rows.has(partNo)) rows.set(partNo, [partNo, description, defaultQty, 1, now]);
     }
   }
+  await db.insertRows("INSERT INTO parts (part_no, description, default_qty, active, updated_at)",
+    [...rows.values()], "ON CONFLICT(part_no) DO NOTHING");
 }
 
 async function backfillParts() {
   const db = await database();
+  // Most reads need no transaction; recheck inside when a backfill is actually needed.
+  if (writesPaused() || await db.prepare("SELECT value FROM meta WHERE key = 'parts-from-reports-v1'").get()) return;
   await db.transaction(async () => {
     if (writesPaused() || await db.prepare("SELECT value FROM meta WHERE key = 'parts-from-reports-v1'").get()) return;
     for (const row of await db.query("SELECT lines FROM reports ORDER BY updated_at DESC, id")) {

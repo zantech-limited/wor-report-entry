@@ -159,6 +159,7 @@ export class Storage {
     if (this.config.engine === "mysql") {
       return sql
         .replace(/ON CONFLICT\(key\) DO NOTHING/g, "ON DUPLICATE KEY UPDATE key = key")
+        .replace(/ON CONFLICT\(part_no\) DO NOTHING/g, "ON DUPLICATE KEY UPDATE part_no = part_no")
         .replace(/\bkey\b/g, "`key`")
         .replace(/\blines\b/g, "`lines`")
         .replace(
@@ -214,6 +215,15 @@ export class Storage {
       get: async (...values: Value[]) => (await this.query(sql, values))[0],
       run: (...values: Value[]) => this.query(sql, values),
     };
+  }
+
+  /** Bounded batches keep remote round trips down and stay within driver parameter limits. */
+  async insertRows(prefix: string, rows: Value[][], suffix: string) {
+    for (let offset = 0; offset < rows.length; offset += 200) {
+      const batch = rows.slice(offset, offset + 200);
+      const placeholders = batch.map(row => `(${row.map(() => "?").join(", ")})`).join(", ");
+      await this.query(`${prefix} VALUES ${placeholders} ${suffix}`, batch.flat());
+    }
   }
 
   async transaction<T>(work: () => Promise<T>): Promise<T> {
