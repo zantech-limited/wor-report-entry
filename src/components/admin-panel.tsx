@@ -74,6 +74,23 @@ export function AdminPanel() {
   const [logFilter, setLogFilter] = useState("all");
   const [confirmMigration, setConfirmMigration] = useState(false);
   const restoreRef = useRef<HTMLInputElement>(null);
+  const certificateRef = useRef<HTMLInputElement>(null);
+  const storageName = config.engine === "supabase" ? "Supabase" : config.engine === "mysql" ? "MySQL" : "PostgreSQL";
+  async function importCertificate(file: File) {
+    setError("");
+    setMessage("");
+    try {
+      if (file.size > 16000) throw new Error("The CA certificate must be 16 KB or smaller.");
+      const ca = (await file.text()).trim();
+      if (!/^-----BEGIN CERTIFICATE-----[\s\S]+-----END CERTIFICATE-----$/.test(ca) || /PRIVATE KEY/.test(ca)) {
+        throw new Error("Choose a PEM-formatted .crt or .pem CA certificate, without private keys.");
+      }
+      updateConfig({ ca });
+      setMessage("CA certificate imported. Use Test connection to verify it before applying storage settings.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not read the certificate file.");
+    }
+  }
   async function load() {
     const [next, catalog] = await Promise.all([
       request("/api/admin"),
@@ -439,7 +456,7 @@ export function AdminPanel() {
                     />
                     Use TLS with certificate verification
                   </label>
-                  {config.tls && <div className="grid gap-1.5"><Label htmlFor="storage-ca">TLS CA certificate (PEM, if required)</Label><textarea id="storage-ca" className="min-h-24 rounded-lg border bg-card p-3 font-mono text-xs" value={config.ca??''} onChange={event=>updateConfig({ca:event.target.value})}/><p className="text-xs text-muted-foreground">Paste the server root certificate supplied in Supabase Database settings if it is not trusted by this container.</p></div>}
+                  {config.tls && <div className="grid gap-1.5"><div className="flex flex-wrap items-center justify-between gap-2"><Label htmlFor="storage-ca">TLS CA certificate (PEM, if required)</Label><Button type="button" variant="outline" size="sm" disabled={!!pending} onClick={()=>certificateRef.current?.click()}>Import certificate</Button></div><input ref={certificateRef} type="file" accept=".crt,.pem,.cer,text/plain,application/x-pem-file,application/pkix-cert" className="hidden" aria-label="Import CA certificate file" onChange={event=>{const file=event.target.files?.[0]; event.target.value=''; if(file) void importCertificate(file);}}/><textarea id="storage-ca" className="min-h-24 rounded-lg border bg-card p-3 font-mono text-xs" value={config.ca??''} onChange={event=>updateConfig({ca:event.target.value})}/><p className="text-xs text-muted-foreground">Import or paste the server root certificate supplied in Supabase Database settings if it is not trusted by this container. Certificate files must use PEM text format.</p></div>}
                   <Field id="storage-code" label="Existing database identifier (five digits)" value={config.databaseCode??''} onChange={value=>updateConfig({databaseCode:value.replace(/\D/g,'').slice(0,5)})}/>
                   <p className="text-xs text-muted-foreground">For another container, enter the code shown in the original instance&apos;s Admin page. Joining uses the shared data directly and does not upload this container&apos;s local data. Refresh pages to see other instances&apos; updates.</p>
                 </>
@@ -455,6 +472,7 @@ export function AdminPanel() {
                 Use environment variables for deployment secrets. Passwords are
                 never shown in logs or returned by this page.
               </p>
+              {config.engine !== "sqlite" && <p className="rounded-lg bg-muted p-3 text-sm">For a new or empty database, choose Move this desk to {storageName} to copy your data and save the connection. To join a database already used by another desk, enter its five-digit identifier and choose Connect to existing database. Test connection checks the settings only.</p>}
               <div className="flex flex-wrap gap-2">
                 {config.engine!=='sqlite' && <Button variant="outline" disabled={!!pending || overview?.writesPaused || overview?.environmentConfigured || !/^\d{5}$/.test(config.databaseCode??'')} onClick={()=>void act('connect',()=>storage('connect'))}>Connect to existing database</Button>}
                 <Button
@@ -473,7 +491,7 @@ export function AdminPanel() {
                     }
                     onClick={() => setConfirmMigration(true)}
                   >
-                    Prepare storage switch
+                    Move this desk to {storageName}
                   </Button>
                 )}
               </div>
@@ -498,7 +516,7 @@ export function AdminPanel() {
                         void act("migrate", () => storage("migrate"))
                       }
                     >
-                      Copy data and switch on restart
+                      Copy data and save connection
                     </Button>
                     <Button
                       variant="outline"
