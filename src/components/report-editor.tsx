@@ -228,7 +228,7 @@ export function ReportEditor({
         setSaveError(null);
         const snapshot = latest.current;
         try {
-          const response = await fetch(`/api/reports/${snapshot.id}`, {
+          const response = await fetch(`/api/reports/${snapshot.id}?suggestions=if-changed`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(snapshot),
@@ -236,11 +236,12 @@ export function ReportEditor({
           const body = (await response.json()) as {
             error?: string;
             suggestions?: Suggestions;
+            saved?: boolean;
           };
-          if (!response.ok || !body.suggestions) {
+          if (!response.ok || (!body.saved && !body.suggestions)) {
             throw new Error(body.error || "The report could not be saved.");
           }
-          setSuggestions(body.suggestions);
+          if (body.suggestions) setSuggestions(body.suggestions);
           if (!dirty.current) setStatus("saved");
         } catch (cause) {
           const message =

@@ -190,7 +190,7 @@ export class Storage {
   }
 
   async query(sql: string, values: Value[] = []): Promise<Row[]> {
-    return this.locked(async () => {
+    const execute = async () => {
       const session = this.context.getStore();
       const translated = this.sql(sql);
       if (session) return session.query(translated, values);
@@ -206,7 +206,11 @@ export class Storage {
         return Array.isArray(rows) ? (rows as Row[]) : [];
       }
       return (await this.pgPool!.query(translated, values)).rows;
-    });
+    };
+    // Remote SELECTs use separate pooled connections and cannot see uncommitted writes.
+    // SQLite and all transactional queries retain the existing serialized behavior.
+    if (!this.local && !this.context.getStore() && /^\s*SELECT\b/i.test(sql)) return execute();
+    return this.locked(execute);
   }
 
   prepare(sql: string) {

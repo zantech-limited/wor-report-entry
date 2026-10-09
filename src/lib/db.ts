@@ -4,6 +4,7 @@ import { validateReportInput } from "./report-validation";
 import { technicianStates } from "./technicians";
 import { rememberParts } from "./parts";
 import { workbookMonth } from "./workbook-month";
+import { saveChanges } from "./save-changes";
 import { customerSuggestions } from "./customers";
 import { parseWorkbook, templatePath, type DirectoryCounts } from "./excel";
 import {
@@ -106,11 +107,11 @@ export async function rememberFromLines(lines: WorkOrder[]) {
 export async function getSuggestions(): Promise<Suggestions> {
   await whenReady();
   const db = await database();
-  const rows = (await db
+  const [rows, states, machines] = await Promise.all([db
     .prepare(
       "SELECT kind, parent, value, uses FROM suggestions ORDER BY uses DESC, LOWER(value) ASC",
     )
-    .all()) as { kind: string; parent: string; value: string; uses: number }[];
+    .all() as Promise<{ kind: string; parent: string; value: string; uses: number }[]>, technicianStates(), collectMachines(db)]);
   const customers: string[] = [];
   const techs: string[] = [];
   const locationsByCustomer: Record<string, string[]> = {};
@@ -124,7 +125,7 @@ export async function getSuggestions(): Promise<Suggestions> {
       locationsByCustomer[row.parent] = list;
     }
   }
-  for (const state of await technicianStates()) {
+  for (const state of states) {
     const found = techs.indexOf(state.name);
     if (!state.active && found >= 0) techs.splice(found, 1);
     else if (state.active && found < 0) techs.push(state.name);
@@ -134,7 +135,7 @@ export async function getSuggestions(): Promise<Suggestions> {
     customers,
     locationsByCustomer,
     techs,
-    machinesByCustomer: await collectMachines(db),
+    machinesByCustomer: machines,
   });
 }
 
@@ -264,14 +265,10 @@ function summaryOf(row: ReportRow): ReportSummary {
 
 export async function listReports(): Promise<ReportSummary[]> {
   await whenReady();
-  const rows = (await (
-    await database()
-  )
-    .prepare("SELECT id, title, prepared_by, source_filename, created_at, updated_at, lines FROM reports ORDER BY updated_at DESC")
-    .all()) as ReportRow[];
-  const locks=new Map((await (await database()).query("SELECT key, value FROM meta WHERE key LIKE 'report-month:%'"))
-    .map(row=>[String(row.key).slice(13),String(row.value)]));
-  return rows.map(row=>({...summaryOf(row),...(locks.has(row.id)?{monthLabel:monthLabelFromDate(`${locks.get(row.id)}-01`)}:{})}));
+  const db = await database();
+  const lockKey = db.config.engine === "sqlite" ? "'report-month:' || r.id" : "CONCAT('report-month:', r.id)";
+  const rows = await db.query(`SELECT r.id, r.title, r.prepared_by, r.source_filename, r.created_at, r.updated_at, r.lines, lock_state.value AS month_key FROM reports AS r LEFT JOIN meta AS lock_state ON lock_state.key = ${lockKey} ORDER BY r.updated_at DESC`) as (ReportRow & { month_key: string | null })[];
+  return rows.map(row=>({...summaryOf(row),...(row.month_key ? {monthLabel:monthLabelFromDate(`${row.month_key}-01`)}:{})}));
 }
 
 export async function getReport(id: string): Promise<Report | null> {
@@ -279,12 +276,11 @@ export async function getReport(id: string): Promise<Report | null> {
   const row = (await (
     await database()
   )
-    .prepare("SELECT id, title, prepared_by, source_filename, created_at, updated_at, prefix_map, lines FROM reports WHERE id = ?")
-    .get(id)) as ReportRow | undefined;
+    .prepare("SELECT id, title, prepared_by, source_filename, created_at, updated_at, prefix_map, lines, (SELECT value FROM meta WHERE key = ?) AS month_key FROM reports WHERE id = ?")
+    .get(`report-month:${id}`,id)) as (ReportRow & { month_key: string | null }) | undefined;
   if(!row) return null;
   const report=rowToReport(row);
-  const lock=await (await database()).prepare("SELECT value FROM meta WHERE key = ?").get(`report-month:${id}`);
-  report.monthKey=lock ? String(lock.value) : workbookMonth(report.lines);
+  report.monthKey=row.month_key ? String(row.month_key) : workbookMonth(report.lines);
   return report;
 }
 
@@ -371,27 +367,28 @@ async function importWorkbookImpl(
   return report;
 }
 
-async function saveReportImpl(id: string, input: Report): Promise<Suggestions> {
+async function saveReportImpl(id: string, input: Report): Promise<boolean> {
   await whenReady();
   assertWritable();
   validateReportInput(input);
   const existing = await (
     await database()
   )
-    .prepare("SELECT id, lines FROM reports WHERE id = ?")
-    .get(id);
+    .prepare("SELECT id, lines, (SELECT value FROM meta WHERE key = ?) AS month_key FROM reports WHERE id = ?")
+    .get(`report-month:${id}`, id);
   if (!existing) {
     throw new Error("That report is no longer saved.");
   }
   const previous=JSON.parse(String(existing.lines)) as WorkOrder[];
+  const changes = saveChanges(previous, input.lines);
   for(const line of input.lines) {
     if(!line.date || previous.find(old=>old.id===line.id)?.date===line.date) continue;
     const parsed=new Date(`${line.date}T00:00:00Z`);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(line.date) || Number.isNaN(parsed.valueOf()) || parsed.toISOString().slice(0,10)!==line.date) throw new Error('Invalid work-order date. Choose a calendar date.');
   }
   const db=await database();
-  const lock=await db.prepare("SELECT value FROM meta WHERE key = ?").get(`report-month:${id}`);
-  const monthKey=lock ? String(lock.value) : workbookMonth(previous) || workbookMonth(input.lines);
+  const lock=existing.month_key;
+  const monthKey=lock ? String(lock) : workbookMonth(previous) || workbookMonth(input.lines);
   if(monthKey) {
     for(const line of input.lines) {
       const before=previous.find(old=>old.id===line.id);
@@ -417,9 +414,9 @@ async function saveReportImpl(id: string, input: Report): Promise<Suggestions> {
       JSON.stringify(lines),
       id,
     );
-  await rememberFromLines(lines);
+  await rememberFromLines(changes.catalogLines);
   logEvent("report.saved", "Saved report changes.");
-  return getSuggestions();
+  return changes.suggestionsChanged;
 }
 
 async function deleteReportImpl(id: string): Promise<void> {
@@ -441,9 +438,10 @@ export async function importWorkbook(data: Buffer, filename: string) {
     importWorkbookImpl(data, filename),
   );
 }
-export async function saveReport(id: string, input: Report) {
+export async function saveReport(id: string, input: Report, suggestions: "always" | "when-changed" = "always") {
   await whenReady();
-  return (await database()).transaction(() => saveReportImpl(id, input));
+  const changed = await (await database()).transaction(() => saveReportImpl(id, input));
+  return suggestions === "always" || changed ? getSuggestions() : undefined;
 }
 export async function deleteReport(id: string) {
   await whenReady();

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { NextResponse } from "next/server";
 import { getReport, getReportBlob } from "@/lib/db";
-import { templatePath, writeWorkbook } from "@/lib/excel";
+import { templatePath, writeWorkbook, workbookFileType } from "@/lib/excel";
 import { fileMonthStamp } from "@/lib/model";
 import { logEvent } from "@/lib/events";
 
@@ -18,12 +18,13 @@ export async function GET(
   try {
     const base = (await getReportBlob(id)) ?? readFileSync(templatePath());
     const file = await writeWorkbook(base, report);
+    const format = await workbookFileType(file);
     const who = report.preparedBy.trim() || "Service desk";
-    const filename = `Monthly Service Report ${who} ${fileMonthStamp(report.lines,report.monthKey)}.xlsm`;
-    logEvent("workbook.exported", "Exported a macro-preserving workbook.");
+    const filename = `Monthly Service Report ${who} ${fileMonthStamp(report.lines,report.monthKey)}.${format.extension}`;
+    logEvent("workbook.exported", `Exported an ${format.extension.toUpperCase()} workbook preserving its original format.`);
     return new NextResponse(new Uint8Array(file), {
       headers: {
-        "Content-Type": "application/vnd.ms-excel.sheet.macroEnabled.12",
+        "Content-Type": format.contentType,
         "Content-Disposition": `attachment; filename="${filename.replace(/[^\x20-\x7e]|["\\]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
       },
     });

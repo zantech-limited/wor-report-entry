@@ -23,8 +23,9 @@ export async function PUT(
   const { id } = await context.params;
   try {
     const body = (await request.json()) as Report;
-    const suggestions = await saveReport(id, body);
-    return NextResponse.json({ suggestions });
+    const suggestions = await saveReport(id, body,
+      new URL(request.url).searchParams.get("suggestions") === "if-changed" ? "when-changed" : "always");
+    return NextResponse.json({ saved: true, suggestions });
   } catch (cause) {
     logEvent("report.save_failed", "A report could not be saved.", "error");
     const message = cause instanceof Error && /^(That report|Invalid |Report exceeds|Work orders|Storage migration|customer must|location must|technician must|secondaryTech must)/.test(cause.message) ? cause.message : "Could not save the report. Check the storage connection and try again.";

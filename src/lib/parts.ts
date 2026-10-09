@@ -67,6 +67,11 @@ async function backfillParts() {
     await db.query("INSERT INTO meta (key, value) VALUES (?, ?)", ["parts-from-reports-v1", "1"]);
   });
 }
+export async function listEntryParts(): Promise<Part[]> {
+  await backfillParts();
+  const rows = await (await database()).query("SELECT part_no, description FROM parts WHERE active = 1 ORDER BY part_no");
+  return rows.map(row => ({ partNo: String(row.part_no), description: String(row.description), defaultQty: "1", active: true }));
+}
 export async function listParts(includeArchived = false): Promise<Part[]> {
   await backfillParts();
   const usage = await partUsage();

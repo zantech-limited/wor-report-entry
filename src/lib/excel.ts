@@ -671,6 +671,22 @@ async function mustText(zip: JSZip, path: string): Promise<string> {
   return file.async("string");
 }
 
+export async function workbookFileType(data: Buffer | Uint8Array) {
+  const zip = await JSZip.loadAsync(data);
+  const xml = await mustText(zip, "[Content_Types].xml");
+  for (const match of xml.matchAll(/<Override\b[^>]*\/>/g)) {
+    const entry = attrs(match[0]);
+    if (entry.PartName !== "/xl/workbook.xml") continue;
+    if (entry.ContentType === "application/vnd.ms-excel.sheet.macroEnabled.main+xml") {
+      return { extension: "xlsm", contentType: "application/vnd.ms-excel.sheet.macroEnabled.12" };
+    }
+    if (entry.ContentType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml") {
+      return { extension: "xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
+    }
+  }
+  throw new Error("The workbook package has an unsupported Excel format.");
+}
+
 export async function writeWorkbook(base: Buffer | Uint8Array, report: Report): Promise<Buffer> {
   const zip = await JSZip.loadAsync(base);
   const workbookXml = await mustText(zip, "xl/workbook.xml");
