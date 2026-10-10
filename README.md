@@ -89,6 +89,7 @@ Failed saves retain the form and offer Retry save rather than retrying indefinit
 npm run lint
 npm run check:types
 npm run check:workbook
+npm run check:template
 npm run check:reporting
 npm run build
 ```
@@ -103,7 +104,7 @@ npm run build
 - A customer with past visits offers that company’s serial numbers. Choosing one fills the serial, the model from the prefix map (or the historical model when the prefix is unknown), and Location when every visit for that serial used the same site. Typed model and location stay as they are until you pick a machine on purpose.
 - Export `.xlsm`. The file keeps the template’s macros, PrefixMap columns, and Master table (`Table2`). Pivot caches are not rebuilt.
 
-The blank template does not load customer, site, or technician names. Names you type, and names in a workbook you import, are remembered after you save.
+The blank template does not load customer, site, or technician names. Names you type, and names in a workbook you import, are remembered after you save. From v0.4.5, the bundled template has complete pivot-cache definitions rebuilt and saved by Excel. The original macro bytes and all 148 prefixes are preserved. Existing site-created months use this repaired template automatically on their next export; imported months retain their original workbook. `check:template` catches incomplete pivot fields and records and verifies blank and populated exports.
 
 Parts usage counts each recorded part line across saved workbooks, regardless of QTY. The catalog shows total uses and per-part uses. Different descriptions for one part number can be consolidated by an administrator for future autofill; historical rows stay intact. New catalog picks use quantity 1. Typing a part fills an empty quantity with 1 and preserves existing quantities.
 
@@ -128,3 +129,4 @@ From v0.4.4, export extensions and download MIME types follow the workbook's act
 The original database receives a permanent random five-digit identifier displayed in Admin. To move the original data, use Move this desk to Supabase with an empty destination; migration copies the identifier along with the workbook data. To join from another container, enter the same connection parameters and this code, then choose Connect to existing database and restart. Joining verifies the code, preserves local data, and copies nothing into the shared database. Set DB_CODE with DB_ENGINE=supabase when configuring through environment variables.
 
 Both containers read and write the same remote database; refresh a page to see updates from another instance. The five-digit code verifies a configured database and is not a global lookup, password, or standalone authentication method. Keep the database credentials and Admin token private. Supabase workbook tables have RLS enabled and browser anon/authenticated access revoked; the server connection must use the database owner role. Do not edit the identity metadata directly. Additive backup restore preserves the current database identity; migration preserves the source identity.
+

@@ -1,6 +1,6 @@
 {
   "name": "monthly-service-reports",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "scripts": {
     "dev": "next dev -p 43123 -H 0.0.0.0",
@@ -9,6 +9,7 @@
     "lint": "eslint",
     "check:types": "tsc --noEmit",
     "check:workbook": "tsx scripts/check-roundtrip.ts",
+    "check:template": "tsx scripts/check-template-integrity.ts",
     "check:storage": "tsx scripts/check-storage.ts",
     "check:reporting": "tsx scripts/check-reporting.ts"
   },
