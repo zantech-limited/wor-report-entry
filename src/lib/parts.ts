@@ -48,9 +48,11 @@ export async function rememberParts(lines: Pick<WorkOrder, "partNo" | "descripti
       const quantity = quantities.length === numbers.length ? quantities[index].trim() : "";
       const defaultQty = /^\d+(\.\d+)?$/.test(quantity) && Number(quantity) > 0 ? quantity : "1";
       // Saved work orders never overwrite curated descriptions or reactivate archived parts.
-      if (!rows.has(partNo)) rows.set(partNo, [partNo, description, defaultQty, 1, now]);
+      if (!rows.has(partNo.toLowerCase())) rows.set(partNo.toLowerCase(), [partNo, description, defaultQty, 1, now]);
     }
   }
+  if (!rows.size) return;
+  for (const existing of await db.query("SELECT part_no FROM parts")) rows.delete(String(existing.part_no).toLowerCase());
   await db.insertRows("INSERT INTO parts (part_no, description, default_qty, active, updated_at)",
     [...rows.values()], "ON CONFLICT(part_no) DO NOTHING");
 }
@@ -131,7 +133,7 @@ export async function savePart(input: unknown) {
   await db.transaction(async () => {
     assertWritable();
     const existing = await db
-      .prepare("SELECT part_no FROM parts WHERE part_no = ?")
+      .prepare("SELECT part_no FROM parts WHERE LOWER(part_no) = LOWER(?)")
       .get(p.partNo);
     if (existing)
       await db.query(
@@ -141,7 +143,7 @@ export async function savePart(input: unknown) {
           p.defaultQty,
           p.active ? 1 : 0,
           new Date().toISOString(),
-          p.partNo,
+          String(existing.part_no),
         ],
       );
     else

@@ -9,6 +9,9 @@ import { customerSuggestions } from "./customers";
 import { parseWorkbook, templatePath, type DirectoryCounts } from "./excel";
 import {
   blankLine,
+  canonicalize,
+  nameKey,
+  uniqueNames,
   isBlankLine,
   reportMonthLabel,
   monthLabelFromDate,
@@ -83,15 +86,21 @@ async function seedDirectory(directory: DirectoryCounts) {
     "ON CONFLICT(kind, parent, value) DO UPDATE SET uses = MAX(uses, excluded.uses)");
 }
 
-export async function rememberFromLines(lines: WorkOrder[]) {
+export async function rememberFromLines(lines: WorkOrder[], knownRows?: Awaited<ReturnType<Storage["query"]>>) {
+  if (!lines.length) return;
   await rememberParts(lines);
   const db = await database();
   const rows = new Map<string, (string | number)[]>();
+  const known = knownRows ?? await db.query("SELECT kind, parent, value FROM suggestions");
+  const names = new Map(known.map(row => [JSON.stringify([row.kind, nameKey(String(row.parent)), nameKey(String(row.value))]), String(row.value)]));
   const remember = (kind: string, parent: string, value: string) => {
-    rows.set(JSON.stringify([kind, parent, value]), [kind, parent, value, 1]);
+    const key = JSON.stringify([kind, nameKey(parent), nameKey(value)]);
+    value = names.get(key) ?? value;
+    names.set(key, value);
+    rows.set(key, [kind, parent, value, 1]);
   };
   for (const line of lines) {
-    const customer = line.customer.trim();
+    const customer = names.get(JSON.stringify(["customer", "", nameKey(line.customer)])) ?? line.customer.trim();
     const location = line.location.trim();
     if (customer) remember("customer", "", customer);
     if (customer && location) remember("location", customer, location);
@@ -126,15 +135,14 @@ export async function getSuggestions(): Promise<Suggestions> {
     }
   }
   for (const state of states) {
-    const found = techs.indexOf(state.name);
-    if (!state.active && found >= 0) techs.splice(found, 1);
-    else if (state.active && found < 0) techs.push(state.name);
+    for (let i = techs.length - 1; i >= 0; i--) if (nameKey(techs[i]) === nameKey(state.name)) techs.splice(i, 1);
+    if (state.active) techs.push(state.name);
   }
   techs.sort((a, b) => a.localeCompare(b));
   return customerSuggestions({
     customers,
     locationsByCustomer,
-    techs,
+    techs: uniqueNames(techs),
     machinesByCustomer: machines,
   });
 }
@@ -204,11 +212,24 @@ export async function listWorkEntries(): Promise<WorkEntry[]> {
     .prepare("SELECT id, lines FROM reports ORDER BY updated_at DESC")
     .all()) as { id: string; lines: string }[];
   const entries: WorkEntry[] = [];
+  const customerNames: string[] = [];
+  const technicianNames: string[] = [];
+  const siteNames = new Map<string, string[]>();
   for (const row of rows) {
     const lines = JSON.parse(row.lines) as WorkOrder[];
     lines.forEach((line, lineIndex) => {
       if (isBlankLine(line)) return;
       const revenue = Number(line.revenue.replace(/[$,]/g, ""));
+      const customer = canonicalize(line.customer, customerNames);
+      if (customer && !customerNames.includes(customer)) customerNames.push(customer);
+      const sites = siteNames.get(nameKey(customer)) ?? [];
+      const location = canonicalize(line.location, sites);
+      if (location && !sites.includes(location)) sites.push(location);
+      siteNames.set(nameKey(customer), sites);
+      const technician = canonicalize(line.technician, technicianNames);
+      if (technician && !technicianNames.includes(technician)) technicianNames.push(technician);
+      const secondaryTech = canonicalize(line.secondaryTech, technicianNames);
+      if (secondaryTech && !technicianNames.includes(secondaryTech)) technicianNames.push(secondaryTech);
       entries.push({
         reportId: row.id,
         lineIndex,
@@ -216,14 +237,14 @@ export async function listWorkEntries(): Promise<WorkEntry[]> {
         date: line.date,
         no: line.no,
         wor: line.wor,
-        customer: line.customer,
-        location: line.location,
+        customer,
+        location,
         serviceType: line.serviceType,
         slaType: line.slaType,
         modelNo: line.modelNo,
         serialNo: line.serialNo,
-        technician: line.technician,
-        secondaryTech: line.secondaryTech,
+        technician,
+        secondaryTech,
         partNo: line.partNo,
         copycount: line.copycount,
         hours: timeTakenHours(line.arrivalTime, line.departureTime),
@@ -380,6 +401,26 @@ async function saveReportImpl(id: string, input: Report): Promise<boolean> {
     throw new Error("That report is no longer saved.");
   }
   const previous=JSON.parse(String(existing.lines)) as WorkOrder[];
+  const initialChanges = saveChanges(previous, input.lines);
+  let directory: Awaited<ReturnType<Storage["query"]>> | undefined;
+  if (initialChanges.catalogLines.some(line => {
+    const before=previous.find(old=>old.id===line.id);
+    return (["customer", "location", "technician", "secondaryTech"] as const).some(field=>line[field].trim() && line[field]!==before?.[field]);
+  })) {
+    directory = await (await database()).query("SELECT kind, parent, value FROM suggestions ORDER BY uses DESC, LOWER(value) ASC");
+    const customers = uniqueNames(directory.filter(row => row.kind === "customer").map(row => String(row.value)));
+    const techs = uniqueNames(directory.filter(row => row.kind === "tech").map(row => String(row.value)));
+    const locations = directory.filter(row => row.kind === "location");
+    input = { ...input, lines: input.lines.map(line => {
+      const before = previous.find(old => old.id === line.id);
+      const customer = line.customer !== before?.customer ? canonicalize(line.customer, customers) : line.customer;
+      const sites = locations.filter(row => nameKey(String(row.parent)) === nameKey(customer)).map(row => String(row.value));
+      return { ...line, customer,
+        location: line.location !== before?.location ? canonicalize(line.location, sites) : line.location,
+        technician: line.technician !== before?.technician ? canonicalize(line.technician, techs) : line.technician,
+        secondaryTech: line.secondaryTech !== before?.secondaryTech ? canonicalize(line.secondaryTech, techs) : line.secondaryTech };
+    }) };
+  }
   const changes = saveChanges(previous, input.lines);
   for(const line of input.lines) {
     if(!line.date || previous.find(old=>old.id===line.id)?.date===line.date) continue;
@@ -414,7 +455,7 @@ async function saveReportImpl(id: string, input: Report): Promise<boolean> {
       JSON.stringify(lines),
       id,
     );
-  await rememberFromLines(changes.catalogLines);
+  await rememberFromLines(changes.catalogLines, directory);
   logEvent("report.saved", "Saved report changes.");
   return changes.suggestionsChanged;
 }

@@ -1,6 +1,7 @@
 import { database, assertWritable } from "./storage";
 import { whenReady } from "./db";
 import { logEvent } from "./events";
+import { nameKey } from "./model";
 export type Technician = { name: string; active: boolean };
 export async function technicianStates() {
   return (
@@ -17,10 +18,10 @@ export async function listTechnicians(): Promise<Technician[]> {
     "SELECT value FROM suggestions WHERE kind = 'tech'",
   );
   const states = await technicianStates();
-  const map = new Map(names.map((row) => [String(row.value), true]));
-  for (const row of states) map.set(row.name, row.active);
+  const map = new Map(names.map((row) => [nameKey(String(row.value)), {name:String(row.value),active:true}]));
+  for (const row of states) map.set(nameKey(row.name), row);
   return [...map]
-    .map(([name, active]) => ({ name, active }))
+    .map(([, row]) => row)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 export async function saveTechnician(input: unknown) {
@@ -45,10 +46,10 @@ export async function saveTechnician(input: unknown) {
     const set = async (name: string, active: boolean) => {
       if (
         await db
-          .prepare("SELECT name FROM technicians WHERE name = ?")
+          .prepare("SELECT name FROM technicians WHERE LOWER(name) = LOWER(?)")
           .get(name)
       )
-        await db.query("UPDATE technicians SET active = ? WHERE name = ?", [
+        await db.query("UPDATE technicians SET active = ? WHERE LOWER(name) = LOWER(?)", [
           active ? 1 : 0,
           name,
         ]);
@@ -58,7 +59,7 @@ export async function saveTechnician(input: unknown) {
           active ? 1 : 0,
         ]);
     };
-    if (value.oldName?.trim() && value.oldName.trim() !== value.name!.trim())
+    if (value.oldName?.trim() && nameKey(value.oldName) !== nameKey(value.name!))
       await set(value.oldName.trim(), false);
     await set(value.name!.trim(), value.active!);
   });

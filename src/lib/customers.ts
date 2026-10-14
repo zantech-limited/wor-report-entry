@@ -1,7 +1,7 @@
 import {database,assertWritable} from './storage';
 import {whenReady} from './db';
 import {similarCustomer} from './customer-names';
-import type {Suggestions,MachineRecord} from './model';
+import {canonicalize, nameKey, uniqueNames, type Suggestions, type MachineRecord} from './model';
 import {logEvent} from './events';
 export async function customerSettings() {
   const rows=await (await database()).query("SELECT key, value FROM meta WHERE key LIKE 'customer-%'");
@@ -12,32 +12,35 @@ export async function customerSettings() {
     if(key.startsWith('customer-alias:')) aliases.set(key.slice(15),String(row.value));
     if(key.startsWith('customer-name:')) states.set(key.slice(14),row.value==='1');
   }
-  const canonical=(name:string)=>{const seen=new Set<string>(); while(aliases.has(name) && !seen.has(name)){seen.add(name);name=aliases.get(name)!;} return name;};
+  const aliasKeys=new Map([...aliases].map(([name,target])=>[nameKey(name),target]));
+  const known=uniqueNames([...states.keys(),...aliases.values()]);
+  const canonical=(name:string)=>{const seen=new Set<string>(); while(aliasKeys.has(nameKey(name)) && !seen.has(nameKey(name))){seen.add(nameKey(name));name=aliasKeys.get(nameKey(name))!;} return canonicalize(name,known);};
   return {aliases,states,canonical};
 }
 export async function customerSuggestions(input:Suggestions):Promise<Suggestions> {
   const {states,canonical}=await customerSettings();
-  const customers=new Set(input.customers.map(canonical));
-  for(const [name,active] of states) if(active) customers.add(canonical(name));else customers.delete(name);
+  const customers=new Map(uniqueNames(input.customers.map(canonical)).map(name=>[nameKey(name),name]));
+  for(const [name,active] of states) if(active) customers.set(nameKey(canonical(name)),canonical(name));else customers.delete(nameKey(name));
+  const canonicalCustomer=(name:string)=>customers.get(nameKey(canonical(name))) ?? canonical(name);
   const locationsByCustomer:Record<string,string[]>={};
   for(const [name,sites] of Object.entries(input.locationsByCustomer)) {
-    const target=canonical(name); locationsByCustomer[target]=[...new Set([...(locationsByCustomer[target]??[]),...sites])].sort((a,b)=>a.localeCompare(b));
+    const target=canonicalCustomer(name); locationsByCustomer[target]=uniqueNames([...(locationsByCustomer[target]??[]),...sites]).sort((a,b)=>a.localeCompare(b));
   }
   const machinesByCustomer:Record<string,MachineRecord[]>={};
   for(const [name,machines] of Object.entries(input.machinesByCustomer)) {
-    const target=canonical(name);machinesByCustomer[target]=[...(machinesByCustomer[target]??[]),...machines];
+    const target=canonicalCustomer(name);machinesByCustomer[target]=[...(machinesByCustomer[target]??[]),...machines];
   }
   for(const [name,machines] of Object.entries(machinesByCustomer)) {
     const grouped=new Map<string,{serialNo:string;models:Set<string>;locations:Set<string>}>();
     for(const machine of machines) {
       const key=machine.serialNo.toLowerCase();
       const group=grouped.get(key)??{serialNo:machine.serialNo,models:new Set<string>(),locations:new Set<string>()};
-      if(machine.modelNo)group.models.add(machine.modelNo);
-      group.locations.add(machine.location);grouped.set(key,group);
+      if(machine.modelNo)group.models.add(canonicalize(machine.modelNo,[...group.models]));
+      group.locations.add(canonicalize(machine.location,[...group.locations]));grouped.set(key,group);
     }
     machinesByCustomer[name]=[...grouped.values()].map(group=>({serialNo:group.serialNo,modelNo:group.models.size===1?[...group.models][0]:'',location:group.locations.size===1?[...group.locations][0]:''}));
   }
-  return {...input,customers:[...customers].sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'})),locationsByCustomer,machinesByCustomer};
+  return {...input,customers:[...customers.values()].sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'})),locationsByCustomer,machinesByCustomer};
 }
 export async function listCustomers() {
   await whenReady(); const db=await database();
@@ -46,8 +49,12 @@ export async function listCustomers() {
   for(const row of await db.query('SELECT lines FROM reports')) for(const line of JSON.parse(String(row.lines))) if(line.customer?.trim()) counts.set(line.customer,(counts.get(line.customer)??0)+1);
   for(const row of await db.query("SELECT value FROM suggestions WHERE kind = 'customer'")) if(!counts.has(String(row.value))) counts.set(String(row.value),0);
   for(const name of states.keys()) if(!counts.has(name)) counts.set(name,0);
-  const names=[...counts.keys()].sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}));
-  return names.map(name=>({name,jobs:counts.get(name)??0,active:states.get(name)!==false && !aliases.has(name),preferred:aliases.has(name)?canonical(name):'',similar:names.filter(other=>other!==name && !aliases.has(other) && similarCustomer(name,other))}));
+  const grouped=new Map<string,{name:string;jobs:number}>();
+  for(const [name,jobs] of counts){const key=nameKey(name);const group=grouped.get(key)??{name,jobs:0};group.jobs+=jobs;grouped.set(key,group);}
+  const names=[...grouped.values()].map(group=>group.name).sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}));
+  const stateKeys=new Map([...states].map(([name,active])=>[nameKey(name),active]));
+  const aliasKeys=new Set([...aliases.keys()].map(nameKey));
+  return names.map(name=>({name,jobs:grouped.get(nameKey(name))?.jobs??0,active:stateKeys.get(nameKey(name))!==false && !aliasKeys.has(nameKey(name)),preferred:aliasKeys.has(nameKey(name))?canonical(name):'',similar:names.filter(other=>other!==name && !aliasKeys.has(nameKey(other)) && similarCustomer(name,other))}));
 }
 export async function saveCustomer(input:unknown) {
   const body=input as {name:string;active:boolean;names?:string[];preferred?:string};
@@ -55,6 +62,9 @@ export async function saveCustomer(input:unknown) {
   if(!body || !valid(body.name) || typeof body.active!=='boolean') throw new Error('Enter a customer name up to 240 characters.');
   if(body.names && (!Array.isArray(body.names) || body.names.length>100 || !body.names.every(valid) || !valid(body.preferred))) throw new Error('Invalid customer consolidation.');
   await whenReady();const db=await database();
+  const existingNames=await db.query("SELECT value FROM suggestions WHERE kind = 'customer'");
+  const settings=await customerSettings();
+  body.name=canonicalize(body.name,[...settings.states.keys(),...existingNames.map(row=>String(row.value))]);
   await db.transaction(async()=>{
     assertWritable();
     const set=async(key:string,value:string)=>{await db.query('DELETE FROM meta WHERE key = ?',[key]);await db.query('INSERT INTO meta (key, value) VALUES (?, ?)',[key,value]);};

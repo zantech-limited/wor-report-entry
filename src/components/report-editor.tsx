@@ -3,6 +3,7 @@ import { workbookMonth, monthBounds } from "@/lib/workbook-month";
 import { formatCopycount } from "@/lib/copycount";
 
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { MonthActions } from "@/components/month-actions";
@@ -94,6 +95,7 @@ export function ReportEditor({
   const dirty = useRef(false);
   const inFlight = useRef<Promise<boolean> | null>(null);
   const timer = useRef<number | null>(null);
+  const editingField = useRef<EventTarget | null>(null);
   const noRef = useRef<HTMLInputElement>(null);
   const customerAtFocus = useRef("");
   const serialAtEdit = useRef("");
@@ -167,6 +169,7 @@ export function ReportEditor({
     document.addEventListener("click", followLink, true);
     return () => document.removeEventListener("click", followLink, true);
     // persist reads the current report through refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   useEffect(() => {
@@ -209,20 +212,30 @@ export function ReportEditor({
     dirty.current = true;
     setStatus("unsaved");
     if (timer.current) window.clearTimeout(timer.current);
+    if (editingField.current) return;
     timer.current = window.setTimeout(() => {
-      void persist();
-    }, 400);
+      void persist(false);
+    }, 5000);
   }
 
-  async function persist(): Promise<boolean> {
+  async function persist(force = true): Promise<boolean> {
+    if (force && document.activeElement instanceof HTMLElement && editingField.current) {
+      flushSync(() => (document.activeElement as HTMLElement).blur());
+    }
+    if (!force && editingField.current) return false;
     if (timer.current) {
       window.clearTimeout(timer.current);
       timer.current = null;
     }
-    if (inFlight.current) return inFlight.current;
+    if (inFlight.current) {
+      const saved = await inFlight.current;
+      return force && saved ? persist() : saved;
+    }
     if (!dirty.current) return true;
+    let failed = false;
     const job = (async () => {
       while (dirty.current) {
+        if (!force && editingField.current) return false;
         dirty.current = false;
         setStatus("saving");
         setSaveError(null);
@@ -242,8 +255,10 @@ export function ReportEditor({
             throw new Error(body.error || "The report could not be saved.");
           }
           if (body.suggestions) setSuggestions(body.suggestions);
-          if (!dirty.current) setStatus("saved");
+          setStatus(dirty.current ? "unsaved" : "saved");
+          if (!force) break;
         } catch (cause) {
+          failed = true;
           const message =
             cause instanceof Error
               ? cause.message
@@ -262,6 +277,7 @@ export function ReportEditor({
       return await job;
     } finally {
       inFlight.current = null;
+      if (!force && !failed && dirty.current && !editingField.current) scheduleSave();
     }
   }
 
@@ -281,6 +297,7 @@ export function ReportEditor({
   }
 
   function move(delta: number) {
+    if (document.activeElement instanceof HTMLElement && editingField.current) flushSync(() => (document.activeElement as HTMLElement).blur());
     setIndex((current) => {
       const next = Math.min(
         Math.max(current + delta, 0),
@@ -292,6 +309,7 @@ export function ReportEditor({
   }
 
   function addLine() {
+    if (document.activeElement instanceof HTMLElement && editingField.current) flushSync(() => (document.activeElement as HTMLElement).blur());
     setReport((current) => ({
       ...current,
       lines: [...current.lines, blankLine(nextLineNo(current.lines))],
@@ -518,7 +536,17 @@ export function ReportEditor({
       : "No machines on file for this customer. Type the serial. The prefix map still fills the model.";
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6"
+      onFocusCapture={(event) => {
+        if (!(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement)) return;
+        editingField.current = event.target;
+        if (timer.current) window.clearTimeout(timer.current);
+      }}
+      onBlurCapture={(event) => {
+        if (editingField.current !== event.target) return;
+        editingField.current = null;
+        if (dirty.current) scheduleSave();
+      }}>
       <a
         href="#work-order"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-40 focus:rounded-md focus:bg-background focus:px-3 focus:py-2"
@@ -755,6 +783,8 @@ export function ReportEditor({
                 />
                 <TextField
                   id="line-date"
+                  key={line.id}
+                  onDraft={scheduleSave}
                   label="Date"
                   type="date"
                   min={dateBounds?.min}
@@ -1269,6 +1299,7 @@ function TextField({
   inputRef,
   min,
   max,
+  onDraft,
 }: {
   id: string;
   label: string;
@@ -1283,7 +1314,12 @@ function TextField({
   inputRef?: React.Ref<HTMLInputElement>;
   min?:string;
   max?:string;
+  onDraft?: () => void;
 }) {
+  const [dateDraft, setDateDraft] = useState(value);
+  const dateEditing = useRef(false);
+  const [dateReset, setDateReset] = useState(0);
+  useEffect(() => { if (!dateEditing.current) setDateDraft(value); }, [value, dateReset]);
   return (
     <div className="grid gap-1.5">
       <Label htmlFor={id}>{label}</Label>
@@ -1296,10 +1332,24 @@ function TextField({
         inputMode={inputMode}
         spellCheck={spellCheck}
         className={cn("h-11 text-base", className)}
-        value={value}
-        onFocus={onFocus}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={onBlur ? (event) => onBlur(event.target.value) : undefined}
+        value={type === "date" ? dateDraft : value}
+        onFocus={() => { dateEditing.current = true; onFocus?.(); }}
+        onInput={(event) => {
+          if (type === "date") { setDateDraft(event.currentTarget.value); onDraft?.(); }
+        }}
+        onChange={(event) => {
+          if (type !== "date") onChange(event.target.value);
+        }}
+        onBlur={(event) => {
+          dateEditing.current = false;
+          if (type === "date") {
+            if (event.target.validity.badInput) toast.error("Finish entering the full date before leaving this field.");
+            else onChange(event.target.value);
+            setDateDraft(value);
+            setDateReset(current => current + 1);
+          }
+          onBlur?.(event.target.value);
+        }}
       />
     </div>
   );

@@ -288,13 +288,19 @@ export function fileMonthStamp(lines: WorkOrder[],monthKey?:string): string {
   return `${name} ${String(year).slice(2)}`;
 }
 
+export function nameKey(value: string): string { return value.trim().toLowerCase(); }
+export function uniqueNames(values: string[]): string[] {
+  const names = new Map<string, string>();
+  for (const value of values) if (value.trim() && !names.has(nameKey(value))) names.set(nameKey(value), value.trim());
+  return [...names.values()];
+}
 export function canonicalize(value: string, options: string[]): string {
   const trimmed = value.trim();
   if (!trimmed) return "";
   const matches = options.filter(
     (option) => option.toLowerCase() === trimmed.toLowerCase(),
   );
-  return matches.length === 1 ? matches[0] : trimmed;
+  return matches[0] ?? trimmed;
 }
 
 export function locationsFor(
