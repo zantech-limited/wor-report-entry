@@ -219,6 +219,7 @@ export async function listWorkEntries(): Promise<WorkEntry[]> {
   const siteNames = new Map<string, string[]>();
   for (const row of rows) {
     const lines = JSON.parse(row.lines) as WorkOrder[];
+    const sourceMonth = workbookMonth(lines);
     lines.forEach((line, lineIndex) => {
       if (isBlankLine(line)) return;
       const revenue = Number(line.revenue.replace(/[$,]/g, ""));
@@ -248,6 +249,12 @@ export async function listWorkEntries(): Promise<WorkEntry[]> {
         technician,
         secondaryTech,
         partNo: line.partNo,
+        workbookMonth: sourceMonth,
+        description: line.description,
+        qty: line.qty,
+        paymentMethod: line.paymentMethod,
+        ftf: line.ftf,
+        comments: line.comments,
         copycount: line.copycount,
         hours: timeTakenHours(line.arrivalTime, line.departureTime),
         jobStatus: line.jobStatus,

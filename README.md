@@ -13,7 +13,8 @@ Open [http://127.0.0.1:43123](http://127.0.0.1:43123).
 
 The dev server listens on port **43123**. No account and no API key are required.
 
-Use Node.js **24 or newer** (the storage layer uses `node:sqlite`).
+Use Node.js **24 or newer** (the storage layer uses 
+ode:sqlite`).
 
 Reports are stored in `data/reports.sqlite`, which is created on first launch and is not in git. Workbooks you import stay on this machine too. They are gitignored because they contain customer rows.
 
@@ -138,3 +139,12 @@ The original database receives a permanent random five-digit identifier displaye
 
 Both containers read and write the same remote database; refresh a page to see updates from another instance. The five-digit code verifies a configured database and is not a global lookup, password, or standalone authentication method. Keep the database credentials and Admin token private. Supabase workbook tables have RLS enabled and browser anon/authenticated access revoked; the server connection must use the database owner role. Do not edit the identity metadata directly. Additive backup restore preserves the current database identity; migration preserves the source identity.
 
+
+## Monthly PDF reports
+
+On Reports, choose a calendar month and export a comprehensive PDF with activity graphs, technician hours (including secondary assignments), customer/site totals, service/status/SLA breakdowns, parts usage, repeat serial visits, recorded revenue and the complete work-order register. Optionally restrict the report to one technician or customer, or include undated jobs associated with the source workbook month. Costs, profit and payment collection are not inferred.
+
+Number-only and default-only empty placeholders are excluded from summaries and exports; stored workbooks and entry defaults are retained. Part quantities that were not recorded are shown as missing, rather than assumed.
+
+Run 
+ode --import tsx scripts/check-monthly-pdf.ts` for monthly filtering, secondary-hour accounting, parts alignment and PDF pagination checks.
