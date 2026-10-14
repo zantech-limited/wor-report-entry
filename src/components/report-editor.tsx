@@ -260,6 +260,7 @@ export function ReportEditor({
             throw new Error(body.error || "The report could not be saved.");
           }
           if (body.suggestions) setSuggestions(body.suggestions);
+          if (!dirty.current) delayedUntil.current = 0;
           setStatus(dirty.current ? "unsaved" : "saved");
           if (!force) break;
         } catch (cause) {
