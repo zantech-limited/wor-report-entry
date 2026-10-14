@@ -1,6 +1,7 @@
 "use client";
 import { workbookMonth, monthBounds } from "@/lib/workbook-month";
 import { formatCopycount } from "@/lib/copycount";
+import { delayedEntryField, blocksEntryAutosave, entrySaveDelay } from "@/lib/entry-autosave";
 
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -96,6 +97,9 @@ export function ReportEditor({
   const inFlight = useRef<Promise<boolean> | null>(null);
   const timer = useRef<number | null>(null);
   const editingField = useRef<EventTarget | null>(null);
+  const delayedUntil = useRef(0);
+  function focusedFieldId() { return editingField.current instanceof HTMLElement ? editingField.current.id : ""; }
+  function autosaveBlocked() { return blocksEntryAutosave(focusedFieldId()); }
   const noRef = useRef<HTMLInputElement>(null);
   const customerAtFocus = useRef("");
   const serialAtEdit = useRef("");
@@ -212,17 +216,18 @@ export function ReportEditor({
     dirty.current = true;
     setStatus("unsaved");
     if (timer.current) window.clearTimeout(timer.current);
-    if (editingField.current) return;
+    if (delayedEntryField(focusedFieldId())) delayedUntil.current = Date.now() + 5000;
+    if (autosaveBlocked()) return;
     timer.current = window.setTimeout(() => {
       void persist(false);
-    }, 5000);
+    }, entrySaveDelay(delayedUntil.current, Date.now()));
   }
 
   async function persist(force = true): Promise<boolean> {
     if (force && document.activeElement instanceof HTMLElement && editingField.current) {
       flushSync(() => (document.activeElement as HTMLElement).blur());
     }
-    if (!force && editingField.current) return false;
+    if (!force && autosaveBlocked()) return false;
     if (timer.current) {
       window.clearTimeout(timer.current);
       timer.current = null;
@@ -235,7 +240,7 @@ export function ReportEditor({
     let failed = false;
     const job = (async () => {
       while (dirty.current) {
-        if (!force && editingField.current) return false;
+        if (!force && autosaveBlocked()) return false;
         dirty.current = false;
         setStatus("saving");
         setSaveError(null);
@@ -277,7 +282,7 @@ export function ReportEditor({
       return await job;
     } finally {
       inFlight.current = null;
-      if (!force && !failed && dirty.current && !editingField.current) scheduleSave();
+      if (!force && !failed && dirty.current && !autosaveBlocked()) scheduleSave();
     }
   }
 
@@ -540,10 +545,11 @@ export function ReportEditor({
       onFocusCapture={(event) => {
         if (!(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement)) return;
         editingField.current = event.target;
-        if (timer.current) window.clearTimeout(timer.current);
+        if (blocksEntryAutosave(event.target.id) && timer.current) window.clearTimeout(timer.current);
       }}
       onBlurCapture={(event) => {
         if (editingField.current !== event.target) return;
+        if (delayedEntryField(event.target.id) && dirty.current) delayedUntil.current = Date.now() + 5000;
         editingField.current = null;
         if (dirty.current) scheduleSave();
       }}>
