@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
-import { getReport, listReports, saveReport, whenReady } from "@/lib/db";
+import { getReport, listReports, saveReportChecked, whenReady } from "@/lib/db";
 import { assertWritable, database } from "@/lib/storage";
 import { logEvent } from "@/lib/events";
 export const runtime = "nodejs";
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       );
       if (body.action === "save")
         report.prefixMap.push({ prefix, model: body.model.trim() });
-      await saveReport(report.id, report);
+      await saveReportChecked(report.id, report, "when-changed");
     });
     logEvent("prefixes.updated", "Updated a month's prefix map.");
     return NextResponse.json({
@@ -60,11 +60,11 @@ export async function POST(request: Request) {
       {
         error:
           error instanceof Error &&
-          /^(Enter |That month|Storage migration)/.test(error.message)
+          /^(Save conflict:|Enter |That month|Storage migration)/.test(error.message)
             ? error.message
             : "Could not update the prefix map.",
       },
-      { status: 400 },
+      { status: error instanceof Error && error.message.startsWith("Save conflict:") ? 409 : 400 },
     );
   }
 }

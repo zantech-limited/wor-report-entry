@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { deleteReport, getReport, saveReport } from "@/lib/db";
+import { deleteReport, getReport, saveReportChecked } from "@/lib/db";
 import type { Report } from "@/lib/model";
 import { logEvent } from "@/lib/events";
 
@@ -23,13 +23,13 @@ export async function PUT(
   const { id } = await context.params;
   try {
     const body = (await request.json()) as Report;
-    const suggestions = await saveReport(id, body,
+    const result = await saveReportChecked(id, body,
       new URL(request.url).searchParams.get("suggestions") === "if-changed" ? "when-changed" : "always");
-    return NextResponse.json({ saved: true, suggestions });
+    return NextResponse.json({ saved: true, ...result });
   } catch (cause) {
     logEvent("report.save_failed", "A report could not be saved.", "error");
-    const message = cause instanceof Error && /^(That report|Invalid |Report exceeds|Work orders|Storage migration|customer must|location must|technician must|secondaryTech must)/.test(cause.message) ? cause.message : "Could not save the report. Check the storage connection and try again.";
-    const status = message.includes("no longer saved") ? 404 : 400;
+    const message = cause instanceof Error && /^(Recovery snapshot|Save conflict:|That report|Invalid |Report exceeds|Work orders|Storage migration|customer must|location must|technician must|secondaryTech must)/.test(cause.message) ? cause.message : "Could not save the report. Check the storage connection and try again.";
+    const status = message.startsWith("Save conflict:") ? 409 : message.includes("no longer saved") ? 404 : 400;
     return NextResponse.json({ error: message }, { status });
   }
 }

@@ -2,6 +2,7 @@
 import { workbookMonth, monthBounds } from "@/lib/workbook-month";
 import { formatCopycount } from "@/lib/copycount";
 import { delayedEntryField, blocksEntryAutosave, entrySaveDelay } from "@/lib/entry-autosave";
+import {writeLocalDraft,readLocalDraft,clearLocalDraft,archiveLocalDraft} from "@/lib/local-draft";
 
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -81,6 +82,9 @@ export function ReportEditor({
   const [index, setIndex] = useState(initialIndex);
   const [status, setStatus] = useState<SaveStatus>("saved");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [recoveryDraft,setRecoveryDraft] = useState<Report|null>(null);
+  const warnedLocalStorage=useRef(false);
+  const localRecoveryBlocked=useRef(false);
   const [prompt, setPrompt] = useState<{
     prefix: string;
     model: string;
@@ -95,6 +99,7 @@ export function ReportEditor({
   const indexRef = useRef(index);
   const dirty = useRef(false);
   const inFlight = useRef<Promise<boolean> | null>(null);
+  const openingRead = useRef<Promise<boolean>|null>(null);
   const timer = useRef<number | null>(null);
   const editingField = useRef<EventTarget | null>(null);
   const delayedUntil = useRef(0);
@@ -110,6 +115,52 @@ export function ReportEditor({
   latest.current = report;
   suggestionsRef.current = suggestions;
   indexRef.current = index;
+
+  function preserveDraft(value:Report){
+    if((localRecoveryBlocked.current||!writeLocalDraft(value))&&!warnedLocalStorage.current){warnedLocalStorage.current=true;toast.error("Browser recovery storage is unavailable. Keep this tab open and download your unsaved copy if saving fails.");}
+  }
+  function downloadDraft(value:Report){
+    const url=URL.createObjectURL(new Blob([JSON.stringify({format:"service-desk-draft",report:value},null,2)],{type:"application/json"}));
+    const link=document.createElement("a");link.href=url;link.download=`work-order-recovery-${value.id}.json`;link.click();URL.revokeObjectURL(url);
+  }
+  useEffect(()=>{
+    const draft=readLocalDraft(initial.id);
+    if(!draft)return;
+    if(draft.updatedAt===initial.updatedAt){dirty.current=true;latest.current=draft;setReport(draft);setStatus("unsaved");toast.info("Recovered unsaved changes from this browser. Review them, then save.");}
+    else{setRecoveryDraft(draft);if(!archiveLocalDraft(draft)){localRecoveryBlocked.current=true;toast.error("Download the recovery copy before making more edits; browser recovery storage is full.");}toast.warning("A local unsaved copy belongs to an older workbook version. Download it before discarding it; it has not overwritten the current workbook.");}
+  // Only inspect a stored draft when this workbook is opened.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[initial.id]);
+  useEffect(()=>{if(dirty.current)preserveDraft(report);
+  // Draft persistence uses the current report, never a stale network snapshot.
+  },[report]);
+  useEffect(()=>{
+    let live=true;
+    const controller=new AbortController();
+    const timeout=window.setTimeout(()=>controller.abort(),10000);
+    const job=(async()=>{
+      try{
+        const response=await fetch(`/api/reports/${initial.id}`,{cache:"no-store",signal:controller.signal});
+        if(!response.ok)throw new Error("Could not read the current workbook.");
+        const body=await response.json() as {report:Report};
+        if(!live)return false;
+        const fresh=body.report;
+        if(fresh.updatedAt!==latest.current.updatedAt){
+          if(dirty.current){preserveDraft(latest.current);setSaveError("Save conflict: the saved workbook is newer than this page. Download your unsaved copy before reloading.");setStatus("error");return false;}
+          const formatted={...fresh,lines:fresh.lines.map(row=>({...row,copycount:formatCopycount(row.copycount)}))};
+          latest.current=formatted;setReport(formatted);
+        }
+        return true;
+      }catch{
+        if(live){setSaveError("Could not confirm the current workbook. Your local edits are kept; retry saving when the connection returns.");setStatus("error");}
+        return false;
+      }finally{window.clearTimeout(timeout);}
+    })();
+    openingRead.current=job;
+    void job.finally(()=>{if(openingRead.current===job)openingRead.current=null;});
+    return()=>{live=false;controller.abort();};
+  // Opening a cached page must check the saved version before it can save.
+  },[initial.id]);
 
   const line = report.lines[index];
   const month = report.monthKey ? monthLabelFromDate(`${report.monthKey}-01`) : reportMonthLabel(report.lines);
@@ -224,6 +275,7 @@ export function ReportEditor({
   }
 
   async function persist(force = true): Promise<boolean> {
+    if(openingRead.current && !(await openingRead.current))return false;
     if (force && document.activeElement instanceof HTMLElement && editingField.current) {
       flushSync(() => (document.activeElement as HTMLElement).blur());
     }
@@ -241,6 +293,7 @@ export function ReportEditor({
     const job = (async () => {
       while (dirty.current) {
         if (!force && autosaveBlocked()) return false;
+        preserveDraft(latest.current);
         dirty.current = false;
         setStatus("saving");
         setSaveError(null);
@@ -255,11 +308,14 @@ export function ReportEditor({
             error?: string;
             suggestions?: Suggestions;
             saved?: boolean;
+            updatedAt?: string;
           };
           if (!response.ok || (!body.saved && !body.suggestions)) {
             throw new Error(body.error || "The report could not be saved.");
           }
           if (body.suggestions) setSuggestions(body.suggestions);
+          if(body.updatedAt){latest.current={...latest.current,updatedAt:body.updatedAt};setReport(current=>({...current,updatedAt:body.updatedAt!}));}
+          if(!dirty.current&&!localRecoveryBlocked.current)clearLocalDraft(snapshot.id);
           if (!dirty.current) delayedUntil.current = 0;
           setStatus(dirty.current ? "unsaved" : "saved");
           if (!force) break;
@@ -691,8 +747,13 @@ export function ReportEditor({
             >
               Retry save
             </Button>
+            <Button type="button" variant="outline" onClick={()=>downloadDraft(latest.current)}>Download unsaved copy</Button>
           </div>
         )}
+        {recoveryDraft && <div role="alert" className="rounded-lg border border-amber-500 p-3 text-sm">
+          A local unsaved copy is available. The current saved workbook has been kept intact.
+          <Button type="button" variant="outline" className="ml-3" onClick={()=>downloadDraft(recoveryDraft)}>Download recovery copy</Button>
+        </div>}
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">

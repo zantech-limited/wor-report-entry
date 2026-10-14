@@ -5,6 +5,7 @@ import { technicianStates } from "./technicians";
 import { rememberParts } from "./parts";
 import { workbookMonth } from "./workbook-month";
 import { saveChanges } from "./save-changes";
+import {preserveReportHistory} from "./report-history";
 import { customerSuggestions } from "./customers";
 import { parseWorkbook, templatePath, type DirectoryCounts } from "./excel";
 import {
@@ -389,18 +390,21 @@ async function importWorkbookImpl(
   return report;
 }
 
-async function saveReportImpl(id: string, input: Report): Promise<boolean> {
+async function saveReportImpl(id: string, input: Report, expectedUpdatedAt?: string): Promise<{changed:boolean;updatedAt:string}> {
   await whenReady();
   assertWritable();
   validateReportInput(input);
-  const existing = await (
-    await database()
-  )
-    .prepare("SELECT id, lines, (SELECT value FROM meta WHERE key = ?) AS month_key FROM reports WHERE id = ?")
+  const connection = await database();
+  const existing = await connection
+    .prepare("SELECT id, title, prepared_by, source_filename, created_at, prefix_map, lines, updated_at, (SELECT value FROM meta WHERE key = ?) AS month_key FROM reports WHERE id = ?" + (connection.config.engine === "sqlite" ? "" : " FOR UPDATE"))
     .get(`report-month:${id}`, id);
   if (!existing) {
     throw new Error("That report is no longer saved.");
   }
+  if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== String(existing.updated_at)) {
+    throw new Error("Save conflict: this workbook has changed since this page was loaded. Your unsaved copy is preserved; reload the current workbook before continuing.");
+  }
+  const updatedAt = new Date(Math.max(Date.now(), Date.parse(String(existing.updated_at)) + 1)).toISOString();
   const previous=JSON.parse(String(existing.lines)) as WorkOrder[];
   const initialChanges = saveChanges(previous, input.lines);
   let directory: Awaited<ReturnType<Storage["query"]>> | undefined;
@@ -440,6 +444,7 @@ async function saveReportImpl(id: string, input: Report): Promise<boolean> {
   }
   const lines = Array.isArray(input.lines) ? input.lines : [];
   const prefixMap = Array.isArray(input.prefixMap) ? input.prefixMap : [];
+  if(expectedUpdatedAt!==undefined)preserveReportHistory({...rowToReport(existing as ReportRow),monthKey:existing.month_key?String(existing.month_key):undefined});
   await (
     await database()
   )
@@ -451,14 +456,14 @@ async function saveReportImpl(id: string, input: Report): Promise<boolean> {
     .run(
       input.title?.trim() || "Monthly Service Report",
       input.preparedBy?.trim() || "",
-      new Date().toISOString(),
+      updatedAt,
       JSON.stringify(prefixMap),
       JSON.stringify(lines),
       id,
     );
   await rememberFromLines(changes.catalogLines, directory);
   logEvent("report.saved", "Saved report changes.");
-  return changes.suggestionsChanged;
+  return {changed:changes.suggestionsChanged,updatedAt};
 }
 
 async function deleteReportImpl(id: string): Promise<void> {
@@ -482,8 +487,16 @@ export async function importWorkbook(data: Buffer, filename: string) {
 }
 export async function saveReport(id: string, input: Report, suggestions: "always" | "when-changed" = "always") {
   await whenReady();
-  const changed = await (await database()).transaction(() => saveReportImpl(id, input));
-  return suggestions === "always" || changed ? getSuggestions() : undefined;
+  const result = await (await database()).transaction(() => saveReportImpl(id, input));
+  return suggestions === "always" || result.changed ? getSuggestions() : undefined;
+}
+export async function saveReportChecked(id: string, input: Report, suggestions: "always" | "when-changed" = "always") {
+  await whenReady();
+  if (typeof input?.updatedAt !== "string" || !input.updatedAt) throw new Error("Save conflict: reload this workbook before saving. Your local edits have not replaced the saved workbook.");
+  const result = await (await database()).transaction(() => saveReportImpl(id, input, input.updatedAt));
+  let refreshed:Suggestions|undefined;
+  if(suggestions === "always" || result.changed){try{refreshed=await getSuggestions();}catch{logEvent("suggestions.refresh_failed","Saved workbook successfully; optional autocomplete refresh failed.","error");}}
+  return {updatedAt:result.updatedAt,suggestions:refreshed};
 }
 export async function deleteReport(id: string) {
   await whenReady();
