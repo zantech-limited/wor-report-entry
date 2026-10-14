@@ -110,6 +110,8 @@ From v0.4.6, autosave waits until you leave an editable field, then waits five s
 
 From v0.4.7, the five-second delay is limited to customer/company, primary and secondary technician, model and serial fields. Other fields use the original 400 ms debounce. Dates still commit on blur but do not have a five-second delay. Because saves include the whole workbook, a fast-field edit respects any remaining delay on a recently committed name or machine field; it cannot flush that field prematurely. Explicit Save and navigation remain immediate.
 
+From v0.4.8, new site-created work orders default to Parts Required No, Payment Method No charge, Revenue 0, Job Status Completed and FTF N/A. These defaults apply to a new month's first entry and additional new entries, and can be edited. Existing entries and imported workbook cells retain their saved values.
+
 Parts usage counts each recorded part line across saved workbooks, regardless of QTY. The catalog shows total uses and per-part uses. Different descriptions for one part number can be consolidated by an administrator for future autofill; historical rows stay intact. New catalog picks use quantity 1. Typing a part fills an empty quantity with 1 and preserves existing quantities.
 
 ## Version 0.3.0 follow-up

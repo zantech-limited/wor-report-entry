@@ -200,6 +200,10 @@ export function blankLine(no = ""): WorkOrder {
   };
 }
 
+export function newEntryLine(no = ""): WorkOrder {
+  return { ...blankLine(no), partsRequired: "No", paymentMethod: "No charge", revenue: "0", jobStatus: "Completed", ftf: "N/A" };
+}
+
 export function isBlankLine(line: WorkOrder): boolean {
   return LINE_FIELDS.every((key) => String(line[key] ?? "").trim() === "");
 }

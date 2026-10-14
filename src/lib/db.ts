@@ -9,6 +9,7 @@ import { customerSuggestions } from "./customers";
 import { parseWorkbook, templatePath, type DirectoryCounts } from "./excel";
 import {
   blankLine,
+  newEntryLine,
   canonicalize,
   nameKey,
   uniqueNames,
@@ -352,7 +353,7 @@ async function createBlankReportImpl(): Promise<Report> {
     createdAt: now,
     updatedAt: now,
     prefixMap: (globalDb.templatePrefix ?? []).map((entry) => ({ ...entry })),
-    lines: [blankLine("1")],
+    lines: [newEntryLine("1")],
   };
   await insertReport(report, null);
   logEvent("report.created", "Started a blank month.");

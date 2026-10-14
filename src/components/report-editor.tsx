@@ -34,7 +34,7 @@ import {
   SERVICE_TYPES,
   SLA_TYPES,
   applyCustomerChange,
-  blankLine,
+  newEntryLine,
   canonicalize,
   fileMonthStamp,
   formatHours,
@@ -318,7 +318,7 @@ export function ReportEditor({
     if (document.activeElement instanceof HTMLElement && editingField.current) flushSync(() => (document.activeElement as HTMLElement).blur());
     setReport((current) => ({
       ...current,
-      lines: [...current.lines, blankLine(nextLineNo(current.lines))],
+      lines: [...current.lines, newEntryLine(nextLineNo(current.lines))],
     }));
     setIndex(latest.current.lines.length);
     setFocusLine(true);
