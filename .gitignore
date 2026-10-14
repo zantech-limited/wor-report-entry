@@ -49,3 +49,5 @@ next-env.d.ts
 *.xlsm
 *.xlsx
 !templates/monthly-service-report.xlsm
+
+/output/pdf/

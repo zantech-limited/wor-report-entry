@@ -9,3 +9,6 @@ docs
 *.xlsm
 *.xlsx
 !templates/monthly-service-report.xlsm
+
+output
+tmp

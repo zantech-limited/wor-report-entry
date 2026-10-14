@@ -115,6 +115,12 @@ export type Suggestions = {
 };
 
 export type WorkEntry = {
+  workbookMonth?: string;
+  description?: string;
+  qty?: string;
+  paymentMethod?: string;
+  ftf?: string;
+  comments?: string;
   copycount?: string;
   partNo?: string;
   reportId: string;
@@ -205,7 +211,13 @@ export function newEntryLine(no = ""): WorkOrder {
 }
 
 export function isBlankLine(line: WorkOrder): boolean {
-  return LINE_FIELDS.every((key) => String(line[key] ?? "").trim() === "");
+  const defaults: Partial<Record<keyof WorkOrder,string[]>> = {
+    partsRequired:["no"],paymentMethod:["no charge"],revenue:["0","0.00","$0","$0.00"],jobStatus:["completed"],ftf:["n/a"],
+  };
+  return LINE_FIELDS.filter(key=>key!=="no").every(key=>{
+    const value=String(line[key]??"").trim().toLowerCase();
+    return !value || defaults[key]?.includes(value);
+  });
 }
 
 export function nextLineNo(lines: WorkOrder[]): string {
