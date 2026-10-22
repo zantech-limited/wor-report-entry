@@ -1,4 +1,6 @@
 "use client";
+import { uploadBackupFile } from "@/lib/backup-upload-client";
+import { readJsonResponse } from "@/lib/response-json";
 import { useEffect, useRef, useState } from "react";
 import {
   Database,
@@ -56,10 +58,7 @@ const selectClass =
 
 async function request(url: string, init?: RequestInit) {
   const response = await fetch(url, init);
-  const body = await response.json();
-  if (!response.ok)
-    throw new Error(body.error || "The operation could not be completed.");
-  return body;
+  return readJsonResponse(response);
 }
 export function AdminPanel() {
   const [authenticated, setAuthenticated] = useState(false);
@@ -599,13 +598,11 @@ export function AdminPanel() {
                     const file = event.target.files?.[0];
                     if (!file) return;
                     void act("restore", async () => {
-                      const form = new FormData();
-                      form.set("file", file);
-                      const body = await request("/api/admin/backup", {
-                        method: "POST",
-                        body: form,
-                      });
-                      setMessage(body.message);
+                      const body = await uploadBackupFile(file, (form) =>
+                        request("/api/admin/backup", { method: "POST", body: form }),
+                        setMessage,
+                      );
+                      setMessage(body.message || "Backup restored.");
                       await load();
                       if (restoreRef.current) restoreRef.current.value = "";
                     });

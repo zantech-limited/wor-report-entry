@@ -1,3 +1,6 @@
+import { currentActor } from "@/lib/accounts";
+import { acceptBackupChunk, finishBackupUpload } from "@/lib/backup-upload";
+import { BACKUP_CHUNK_BYTES } from "@/lib/backup-upload-limits";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { createBackup, restoreBackup } from "@/lib/backups";
@@ -5,6 +8,7 @@ import { logEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 export async function GET(request: Request) {
   const denied = await requireAdmin(request);
   if (denied) return denied;
@@ -30,6 +34,34 @@ export async function POST(request: Request) {
   if (denied) return denied;
   try {
     const form = await request.formData();
+    const mode = form.get("mode");
+    if (mode === "chunk" || mode === "finish") {
+      const actor = await currentActor(request.headers);
+      if (!actor)
+        return NextResponse.json(
+          { error: "Sign in as Admin." },
+          { status: 401 },
+        );
+      const id = String(form.get("uploadId") || "");
+      if (mode === "chunk") {
+        const file = form.get("file");
+        if (!(file instanceof File) || file.size > BACKUP_CHUNK_BYTES)
+          throw new Error("Invalid backup upload chunk.");
+        return NextResponse.json(
+          await acceptBackupChunk(actor.id, {
+            id,
+            index: Number(form.get("index")),
+            size: Number(form.get("size")),
+            bytes: Buffer.from(await file.arrayBuffer()),
+          }),
+        );
+      }
+      const count = await finishBackupUpload(actor.id, id);
+      return NextResponse.json({
+        count,
+        message: `Restored ${count} months as new copies. Existing reports and catalog entries were preserved.`,
+      });
+    }
     const file = form.get("file");
     if (!(file instanceof File) || file.size > 100 * 1024 * 1024)
       throw new Error("Choose a JSON backup smaller than 100 MB.");
