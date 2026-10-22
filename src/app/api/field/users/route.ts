@@ -109,7 +109,11 @@ export async function POST(request: Request) {
       );
       if (body.technician.trim()) {
         const technician = body.technician.trim();
-        const active = body.status === "active" ? 1 : 0;
+        const linked = await db.query(
+          `SELECT id FROM desk_user WHERE LOWER(${column}) = ? AND status = ?`,
+          [technician.toLowerCase(), "active"],
+        );
+        const active = linked.length ? 1 : 0;
         const existing = await db
           .prepare("SELECT name FROM technicians WHERE LOWER(name) = LOWER(?)")
           .get(technician);
