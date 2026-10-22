@@ -60,7 +60,9 @@ export async function snapshot(db: Storage): Promise<Backup> {
     technicians: (
       await db.query("SELECT * FROM technicians ORDER BY name")
     ).map((row) => ({ ...row })),
-    workflow: await db.query("SELECT * FROM desk_records ORDER BY id"),
+    workflow: await db.query(
+      "SELECT * FROM desk_records WHERE kind NOT IN ('backup-upload','backup-chunk') ORDER BY id",
+    ),
     accounts: await accountSnapshot(db),
   }));
 }
@@ -293,16 +295,23 @@ async function insertRows(db: Storage, backup: Backup, copyIds: boolean) {
       ],
     );
   }
-  for (const row of backup.suggestions)
-    await db.query(
-      `INSERT INTO suggestions (kind, parent, value, uses) VALUES (?, ?, ?, ?) ON CONFLICT(kind, parent, value) DO UPDATE SET uses = MAX(uses, excluded.uses)`,
-      [
-        row.kind as string,
-        row.parent as string,
-        row.value as string,
-        Number(row.uses),
-      ],
-    );
+  const suggestions = new Map<string, Row>();
+  for (const row of backup.suggestions) {
+    const key = JSON.stringify([row.kind, row.parent, row.value]);
+    const previous = suggestions.get(key);
+    if (!previous || Number(row.uses) > Number(previous.uses))
+      suggestions.set(key, row);
+  }
+  await db.insertRows(
+    "INSERT INTO suggestions (kind, parent, value, uses)",
+    [...suggestions.values()].map((row) => [
+      String(row.kind),
+      String(row.parent),
+      String(row.value),
+      Number(row.uses),
+    ]),
+    "ON CONFLICT(kind, parent, value) DO UPDATE SET uses = MAX(uses, excluded.uses)",
+  );
   if (copyIds)
     for (const row of backup.meta)
       await db.query("INSERT INTO meta (key, value) VALUES (?, ?)", [

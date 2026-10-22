@@ -1,0 +1,7 @@
+# Legacy backup upload fix — 0.5.1
+
+The reported backup is valid version-1 JSON, 7,195,640 bytes with 16 workbooks, 1,471 directory entries and 137 catalog parts. A single multipart upload exceeds Vercel's 4.5 MB request limit. Its plain-text HTTP 413 response caused the misleading JSON parser exception before the restore handler ran.
+
+Admin now uploads 1 MiB pieces into owner-scoped temporary database records, then validates and restores the assembled backup in one transaction. The existing copy-import behavior and account/signed-history safeguards remain unchanged. Finalization receipts prevent duplicate copies on repeated final requests; expired staging is cleaned on the next upload and staging is excluded from portable backups. Directory entries use bounded batches to avoid a remote round trip for every name.
+
+Verification passed: the exact supplied legacy file restored into an isolated database with content hashes matching all workbook rows (apart from intentionally regenerated copy IDs) and all original Excel bytes. Synthetic large-file checks cover plain-text HTTP 413 handling, owner isolation, finalization retries, forced mid-restore rollback and staging exclusion. Real HTTP checks using a named test Admin cover seven bounded uploads, cross-origin and anonymous rejection, 16 restored copies and repeated finalization. Existing storage regression, TypeScript, ESLint and the production build passed. The supplied file was not restored into production, where doing so would add copies.

@@ -167,3 +167,10 @@ Install the PWA from the browser menu, or Safari Share > Add to Home Screen on i
 Full portable backups include accounts, signed snapshots and workflow data, but exclude active login sessions. Workbook-copy import remains available for old workbook-only backups. Full-system recovery preserves stable identities and requires an empty database: with a checked-out source tree and dependencies installed, set the destination DB variables, retain the original `AUTH_SECRET`, set `DESK_RESTORE_EMPTY=true`, and run `node --import tsx scripts/restore-full-system.ts /private/path/backup.json`. Existing nonempty destinations are refused. Keep the source backup and secret private.
 
 Verification commands: `node --import tsx scripts/check-accounts-field.ts` with an isolated `DATA_DIR` containing `.checks`; `node --import tsx scripts/check-offline-vault.mjs`; `node --import tsx scripts/check-customer-pdf.ts`; plus the existing workbook, template, reporting and save-recovery checks.
+
+
+## Large legacy backup imports
+
+Version 0.5.1 accepts existing version-1 JSON backups through Admin using 1 MiB upload chunks, avoiding Vercel's per-request body limit. Uploaded pieces are private database staging records shared across function instances; the final restore validates the complete file and commits all workbook copies in one transaction. Repeated finalization does not create another set of copies. Existing data is preserved. Temporary uploads are excluded from portable backups, and expired staging records are removed when the next upload begins. Full account/signed-workflow backups retain the separate empty-database restore requirement.
+
+Run `node --import tsx scripts/check-backup-upload.ts` with an isolated `DATA_DIR` containing `.checks`; optionally set `LEGACY_BACKUP_FILE` to a private older backup. This checks large upload sizes, platform error messages, workbook bytes/content, owner isolation, finalization retries, rollback and staging exclusion.
