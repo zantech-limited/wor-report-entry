@@ -8,6 +8,7 @@ services:
         required: false
     environment:
       DATA_DIR: /app/data
+      APP_URL: ${APP_URL:-http://localhost:43124}
       DESK_AUTO_RESTART: "true"
     volumes:
       - reports:/app/data
@@ -46,6 +47,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+  mailpit:
+    image: axllent/mailpit:latest
+    profiles: [mail-test]
+    ports:
+      - "127.0.0.1:43126:8025"
+      - "127.0.0.1:43127:1025"
 volumes:
   reports:
   mysql:

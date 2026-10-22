@@ -1,3 +1,4 @@
+import {legacyAccess} from "@/lib/access";
 import { NextResponse } from "next/server";
 import { importWorkbook } from "@/lib/db";
 import { isBlankLine } from "@/lib/model";
@@ -6,6 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const accessDenied=await legacyAccess(request,["admin"]);if(accessDenied)return accessDenied;
   try {
     const form = await request.formData();
     const file = form.get("file");

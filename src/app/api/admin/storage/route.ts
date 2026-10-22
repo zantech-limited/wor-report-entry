@@ -16,8 +16,9 @@ import { scheduleStorageRestart } from "@/lib/storage-restart";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
+  if(process.env.VERCEL)return NextResponse.json({error:"On Vercel, change database settings through deployment environment variables and redeploy."},{status:409});
   try {
     assertWritable();
     const body = await request.json();

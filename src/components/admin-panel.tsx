@@ -34,6 +34,7 @@ type Overview = {
   environmentConfigured: boolean;
   databaseIdentifier: string;
   restartAt: number | null;
+  hosted?:boolean;
 };
 const initialConfig: Config = {
   engine: "sqlite",
@@ -503,6 +504,8 @@ export function AdminPanel() {
                 Use environment variables for deployment secrets. Passwords are
                 never shown in logs or returned by this page.
               </p>
+              {overview?.hosted&&<p className="rounded-lg border p-3 text-sm">Vercel hosting: database settings are controlled by environment variables and redeployment. Container restart and local storage switching are unavailable.</p>}
+              {!overview?.hosted&&<div className="contents">
               {config.engine !== "sqlite" && <p className="rounded-lg bg-muted p-3 text-sm">For a new or empty database, choose Move this desk to {storageName} to copy your data and save the connection. To join a database already used by another desk, enter its five-digit identifier and choose Connect to existing database. Test connection checks the settings only.</p>}
               <div className="flex flex-wrap gap-2">
                 {config.engine!=='sqlite' && <Button variant="outline" disabled={!!pending || overview?.writesPaused || overview?.environmentConfigured || !/^\d{5}$/.test(config.databaseCode??'')} onClick={()=>void act('connect',()=>storage('connect'))}>Connect to existing database</Button>}
@@ -526,6 +529,7 @@ export function AdminPanel() {
                   </Button>
                 )}
               </div>
+              </div>}
               {overview?.environmentConfigured && (
                 <p className="text-sm text-muted-foreground">
                   Environment variables control storage. Change those on the

@@ -1,3 +1,4 @@
+import { protectAccountTables } from "./account-schema";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
@@ -14,6 +15,13 @@ import {
 import { whenReady } from "./db";
 import { blankLine, type WorkOrder } from "./model";
 import { logEvent } from "./events";
+import { getMigrations } from "better-auth/db/migration";
+import { makeAuth } from "./accounts";
+const accountTables = [
+  "desk_user",
+  "desk_account",
+  "desk_verification",
+] as const;
 
 export type Backup = {
   format: "service-desk-backup";
@@ -24,6 +32,8 @@ export type Backup = {
   meta: Row[];
   parts?: Row[];
   technicians?: Row[];
+  workflow?: Row[];
+  accounts?: Partial<Record<(typeof accountTables)[number], Row[]>>;
 };
 export async function snapshot(db: Storage): Promise<Backup> {
   return db.transaction(async () => ({
@@ -50,7 +60,72 @@ export async function snapshot(db: Storage): Promise<Backup> {
     technicians: (
       await db.query("SELECT * FROM technicians ORDER BY name")
     ).map((row) => ({ ...row })),
+    workflow: await db.query("SELECT * FROM desk_records ORDER BY id"),
+    accounts: await accountSnapshot(db),
   }));
+}
+const authDateFields = new Set([
+  "createdAt",
+  "updatedAt",
+  "accessTokenExpiresAt",
+  "refreshTokenExpiresAt",
+  "expiresAt",
+]);
+async function accountSnapshot(db: Storage) {
+  if (
+    !(await db
+      .prepare("SELECT value FROM meta WHERE key = ?")
+      .get("accounts-ready"))
+  )
+    return undefined;
+  const result: Partial<Record<(typeof accountTables)[number], Row[]>> = {};
+  for (const table of accountTables)
+    result[table] = (await db.query(`SELECT * FROM ${table} ORDER BY id`)).map(
+      (row) =>
+        Object.fromEntries(
+          Object.entries(row).map(([key, value]) => [
+            key,
+            value === null
+              ? null
+              : authDateFields.has(key)
+                ? new Date(
+                    value instanceof Date
+                      ? value
+                      : typeof value === "number"
+                        ? value
+                        : String(value),
+                  ).toISOString()
+                : key === "emailVerified"
+                  ? value === true || value === 1 || value === "true"
+                  : value,
+          ]),
+        ),
+    );
+  return result;
+}
+export async function restoreFullSystem(backupValue: unknown) {
+  const backup = validateBackup(backupValue),
+    db = await database();
+  await prepareAccountRestore(db, backup);
+  await db.transaction(async () => {
+    for (const table of [
+      "reports",
+      "suggestions",
+      "parts",
+      "technicians",
+      "desk_records",
+    ]) {
+      const rows = await db.query(`SELECT COUNT(*) AS count FROM ${table}`);
+      if (Number(rows[0].count) !== 0)
+        throw new Error("The full-system restore destination must be empty.");
+    }
+    const metadata = await db.query("SELECT key FROM meta");
+    if (metadata.some((row) => row.key !== "database-identifier"))
+      throw new Error("The full-system restore destination must be empty.");
+    await db.query("DELETE FROM meta WHERE key = ?", ["database-identifier"]);
+    await insertRows(db, backup, true);
+  });
+  return backup.reports.length;
 }
 export async function createBackup() {
   await whenReady();
@@ -136,14 +211,66 @@ export function validateBackup(value: unknown): Backup {
     if (row.active !== 0 && row.active !== 1)
       throw new Error("Invalid technician availability.");
   }
+  if (
+    b.workflow !== undefined &&
+    (!Array.isArray(b.workflow) || b.workflow.length > 200000)
+  )
+    throw new Error("Invalid workflow backup.");
+  for (const row of b.workflow ?? []) {
+    for (const field of ["id", "kind", "owner_id", "data", "updated_at"])
+      stringField(row, field, field === "data" ? 10000000 : 255);
+    if (!Number.isInteger(row.revision) || Number(row.revision) < 1)
+      throw new Error("Invalid workflow revision.");
+    JSON.parse(String(row.data));
+  }
+  if (b.accounts !== undefined) {
+    if (
+      !b.accounts ||
+      typeof b.accounts !== "object" ||
+      Object.keys(b.accounts).some(
+        (table) =>
+          !accountTables.includes(table as (typeof accountTables)[number]),
+      )
+    )
+      throw new Error("Invalid account backup.");
+    for (const table of accountTables) {
+      const rows = b.accounts[table];
+      if (rows !== undefined && (!Array.isArray(rows) || rows.length > 100000))
+        throw new Error("Invalid account records.");
+      for (const row of rows ?? []) {
+        stringField(row, "id", 255);
+        if (
+          Object.values(row).some(
+            (value) =>
+              value !== null &&
+              !["string", "number", "boolean"].includes(typeof value),
+          )
+        )
+          throw new Error("Invalid account fields.");
+      }
+    }
+  }
   return b;
 }
 
+async function prepareAccountRestore(db: Storage, backup: Backup) {
+  if (!backup.accounts) return;
+  // Better Auth uses its own connection; run DDL before acquiring a write lock.
+  await (await getMigrations(makeAuth(db.config).options)).runMigrations();
+  await protectAccountTables(db);
+  for (const table of accountTables) {
+    const [row] = await db.query(`SELECT COUNT(*) AS count FROM ${table}`);
+    if (Number(row.count))
+      throw new Error(
+        "The destination accounts must be empty. Existing accounts will not be overwritten.",
+      );
+  }
+}
 async function insertRows(db: Storage, backup: Backup, copyIds: boolean) {
-  const reportIds=new Map<string,string>();
+  const reportIds = new Map<string, string>();
   for (const row of backup.reports) {
-    const id=copyIds ? row.id as string : randomUUID();
-    reportIds.set(row.id as string,id);
+    const id = copyIds ? (row.id as string) : randomUUID();
+    reportIds.set(row.id as string, id);
     const lines = JSON.parse(row.lines as string) as WorkOrder[];
     await db.query(
       `INSERT INTO reports (id, title, prepared_by, source_filename, created_at, updated_at, prefix_map, lines, source_blob) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -182,14 +309,24 @@ async function insertRows(db: Storage, backup: Backup, copyIds: boolean) {
         row.key as string,
         row.value as string,
       ]);
-  else for(const row of backup.meta) {
-    let key=String(row.key);
-    if(key.startsWith('report-month:')) {
-      const id=reportIds.get(key.slice(13));if(!id)continue;
-      key=`report-month:${id}`;
-    } else if(!key.startsWith('customer-') && !key.startsWith('part-description:')) continue;
-    if(!await db.prepare('SELECT key FROM meta WHERE key = ?').get(key)) await db.query('INSERT INTO meta (key, value) VALUES (?, ?)',[key,String(row.value)]);
-  }
+  else
+    for (const row of backup.meta) {
+      let key = String(row.key);
+      if (key.startsWith("report-month:")) {
+        const id = reportIds.get(key.slice(13));
+        if (!id) continue;
+        key = `report-month:${id}`;
+      } else if (
+        !key.startsWith("customer-") &&
+        !key.startsWith("part-description:")
+      )
+        continue;
+      if (!(await db.prepare("SELECT key FROM meta WHERE key = ?").get(key)))
+        await db.query("INSERT INTO meta (key, value) VALUES (?, ?)", [
+          key,
+          String(row.value),
+        ]);
+    }
   for (const row of backup.parts ?? []) {
     if (
       !copyIds &&
@@ -222,10 +359,78 @@ async function insertRows(db: Storage, backup: Backup, copyIds: boolean) {
       Number(row.active),
     ]);
   }
+  if (copyIds) {
+    if (backup.accounts) {
+      for (const table of accountTables)
+        for (const row of backup.accounts[table] ?? []) {
+          const columns = Object.keys(row);
+          if (columns.some((column) => !/^\w+$/.test(column)))
+            throw new Error("Invalid account columns.");
+          const quoted = columns.map((column) =>
+            db.config.engine === "mysql" ? `\`${column}\`` : `"${column}"`,
+          );
+          const dates = new Set([
+            "createdAt",
+            "updatedAt",
+            "accessTokenExpiresAt",
+            "refreshTokenExpiresAt",
+            "expiresAt",
+          ]);
+          const values = columns.map((column) => {
+            const value = row[column];
+            if (dates.has(column) && value !== null) {
+              const timestamp =
+                typeof value === "number" ? value : Date.parse(String(value));
+              if (!Number.isFinite(timestamp))
+                throw new Error("Invalid account date.");
+              return db.config.engine === "sqlite"
+                ? timestamp
+                : db.config.engine === "mysql"
+                  ? new Date(timestamp)
+                      .toISOString()
+                      .slice(0, 23)
+                      .replace("T", " ")
+                  : new Date(timestamp).toISOString();
+            }
+            if (typeof value === "boolean")
+              return db.config.engine === "sqlite" ||
+                db.config.engine === "mysql"
+                ? Number(value)
+                : String(value);
+            return value as string | number | null;
+          });
+          await db.query(
+            `INSERT INTO ${table} (${quoted.join(",")}) VALUES (${columns.map(() => "?").join(",")})`,
+            values,
+          );
+        }
+    }
+    for (const row of backup.workflow ?? [])
+      await db.query(
+        "INSERT INTO desk_records (id,kind,owner_id,revision,data,updated_at) VALUES (?,?,?,?,?,?)",
+        [
+          String(row.id),
+          String(row.kind),
+          String(row.owner_id),
+          Number(row.revision),
+          String(row.data),
+          String(row.updated_at),
+        ],
+      );
+  }
 }
 
 export async function restoreBackup(value: unknown) {
   const backup = validateBackup(value);
+  if (
+    backup.accounts ||
+    backup.workflow?.some(
+      (row) => !["report-history"].includes(String(row.kind)),
+    )
+  )
+    throw new Error(
+      "This backup includes accounts or signed workflow history. Restore it into an empty database using the full-system restore command; importing copies would break identities.",
+    );
   await whenReady();
   const db = await database();
   await db.transaction(async () => {
@@ -280,6 +485,31 @@ function digest(backup: Backup) {
           "updated_at",
         ]),
         technicians: sorted(backup.technicians ?? [], ["name", "active"]),
+        workflow: sorted(backup.workflow ?? [], [
+          "id",
+          "kind",
+          "owner_id",
+          "revision",
+          "data",
+          "updated_at",
+        ]),
+        accounts: backup.accounts
+          ? Object.fromEntries(
+              accountTables.map((table) => [
+                table,
+                sorted(
+                  backup.accounts?.[table] ?? [],
+                  [
+                    ...new Set(
+                      (backup.accounts?.[table] ?? []).flatMap((row) =>
+                        Object.keys(row),
+                      ),
+                    ),
+                  ].sort(),
+                ),
+              ]),
+            )
+          : undefined,
       }),
     )
     .digest("hex");
@@ -288,8 +518,13 @@ function digest(backup: Backup) {
 export async function migrateStorage(config: StorageConfig) {
   await whenReady();
   const source = await database();
-  const sourceCode=await (await import('./database-identity')).databaseIdentifier(source);
-  if(config.databaseCode && config.databaseCode!==sourceCode) throw new Error('Database identifier must match the current database when copying data.');
+  const sourceCode = await (
+    await import("./database-identity")
+  ).databaseIdentifier(source);
+  if (config.databaseCode && config.databaseCode !== sourceCode)
+    throw new Error(
+      "Database identifier must match the current database when copying data.",
+    );
   if (config.engine === "sqlite")
     throw new Error(
       "To return to SQLite, restart with DB_ENGINE=sqlite and restore a downloaded backup. Migration destinations must be MySQL or PostgreSQL.",
@@ -306,6 +541,7 @@ export async function migrateStorage(config: StorageConfig) {
       writeFileSync(path.join(folder, filename), JSON.stringify(backup), {
         mode: 0o600,
       });
+      await prepareAccountRestore(target, backup);
       await target.transaction(async () => {
         for (const table of [
           "reports",
@@ -313,6 +549,7 @@ export async function migrateStorage(config: StorageConfig) {
           "meta",
           "parts",
           "technicians",
+          "desk_records",
         ]) {
           const [row] = await target.query(
             `SELECT COUNT(*) AS count FROM ${table}`,
@@ -328,7 +565,7 @@ export async function migrateStorage(config: StorageConfig) {
             "Migration verification failed; destination changes were rolled back.",
           );
       });
-      saveConfig({...config,databaseCode:sourceCode});
+      saveConfig({ ...config, databaseCode: sourceCode });
       pauseWrites();
       logEvent(
         "storage.migrated",

@@ -28,7 +28,7 @@ const LINKS = [
   { href: "/admin", label: "Admin", icon: Settings2 },
 ];
 
-export function DeskNav() {
+export function DeskNav({role,accounts=false}:{role?:string;accounts?:boolean}) {
   const pathname = usePathname();
   return (
     <header className="border-b bg-card shadow-sm">
@@ -44,7 +44,7 @@ export function DeskNav() {
           aria-label="Desk"
           className="flex w-full max-w-full gap-1 overflow-x-auto sm:w-auto"
         >
-          {LINKS.map((link) => {
+          {(accounts?(role==="tech"?[{href:"/field",label:"Field service",icon:ClipboardList}]:role?[{href:"/field",label:"Field service",icon:ClipboardList},...LINKS.filter(link=>role==="admin"||!["/","/admin"].includes(link.href))]:[]):LINKS).map((link) => {
             const active =
               link.href === "/"
                 ? pathname === "/"

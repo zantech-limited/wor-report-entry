@@ -1,3 +1,7 @@
+import {PwaSetup} from "@/components/pwa-setup";
+import {headers} from "next/headers";
+import {redirect} from "next/navigation";
+import {accountsEnabled,currentActor} from "@/lib/accounts";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { DeskNav } from "@/components/desk-nav";
@@ -16,23 +20,35 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Monthly service reports",
+  title: "Zantech Service Desk",
+  appleWebApp:{capable:true,statusBarStyle:"default",title:"Zantech"},
+  icons:{apple:"/icons/desk-192.png"},
   description:
     "Enter field work orders and export the Excel workbook the service desk already uses.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const requestHeaders=await headers();
+  const pathname=requestHeaders.get("x-desk-path")||"/";
+  let actor;
+  if(accountsEnabled()&&!["/login","/setup","/offline"].includes(pathname)){
+    actor=await currentActor(new Headers(requestHeaders));
+    if(!actor)redirect("/login");
+    if(actor.role==="tech"&&!pathname.startsWith("/field"))redirect("/field");
+    if(actor.role!=="admin"&&["/admin","/"].includes(pathname))redirect("/field");
+  }
   return (
     <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <Providers>
-          <DeskNav />
+          <DeskNav role={actor?.role} accounts={accountsEnabled()} />
+          <PwaSetup/>
           <main id="main-content" className="min-h-[calc(100vh-12rem)] pb-12">
             {children}
           </main>

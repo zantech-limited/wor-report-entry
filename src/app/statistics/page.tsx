@@ -1,3 +1,4 @@
+import {crewNames} from "@/lib/crew";
 import { listWorkEntries } from "@/lib/db";
 import type { WorkEntry } from "@/lib/model";
 import { technicianHours } from "@/lib/reporting";
@@ -19,7 +20,7 @@ export default async function StatisticsPage() {
   );
   const techs = new Set(
     entries
-      .flatMap((entry) => [entry.technician, entry.secondaryTech])
+      .flatMap(crewNames)
       .filter(Boolean),
   );
 

@@ -1,4 +1,5 @@
 "use client";
+import {crewNames,crewIncludes} from "@/lib/crew";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -61,7 +62,7 @@ export function MasterList({ entries,initialFilters={} }: { entries: WorkEntry[]
     () =>
       unique(
         entries
-          .flatMap((entry) => [entry.technician, entry.secondaryTech])
+          .flatMap(crewNames)
           .filter(Boolean),
       ),
     [entries],
@@ -78,7 +79,7 @@ export function MasterList({ entries,initialFilters={} }: { entries: WorkEntry[]
         if(duplicatesOnly && (worCounts.get(duplicateKey(entry.wor))??0)<2) return false;
         if(!matchesDeskFilters(entry,linkedFilters)) return false;
         if (month && (month==='Undated'?!!entry.date:entry.monthLabel !== month)) return false;
-        if (tech && entry.technician !== tech && entry.secondaryTech !== tech)
+        if (tech && !crewIncludes(entry,tech))
           return false;
         if (status && entry.jobStatus !== (status==='__blank__'?'':status)) return false;
         if(service && entry.serviceType!==(service==='__blank__'?'':service)) return false;
@@ -91,6 +92,7 @@ export function MasterList({ entries,initialFilters={} }: { entries: WorkEntry[]
           entry.modelNo,
           entry.technician,
           entry.secondaryTech,
+          ...(entry.additionalTechs??[]),
           entry.no,
         ]
           .join(" ")

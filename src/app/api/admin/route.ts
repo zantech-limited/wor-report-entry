@@ -9,7 +9,7 @@ import { storageRestartAt } from "@/lib/storage-restart";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
   try {
     const config = readConfig();
@@ -17,6 +17,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       config: { ...config, password: "", hasPassword: !!config.password },
       activeEngine: active.engine,
+      hosted:!!process.env.VERCEL,
       databaseIdentifier: await databaseIdentifier(await database()),
       writesPaused: writesPaused(),
       restartAt: storageRestartAt(),

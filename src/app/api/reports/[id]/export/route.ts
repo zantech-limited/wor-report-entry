@@ -1,3 +1,4 @@
+import {legacyAccess} from "@/lib/access";
 import { readFileSync } from "node:fs";
 import { NextResponse } from "next/server";
 import { getReport, getReportBlob } from "@/lib/db";
@@ -12,6 +13,7 @@ export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const accessDenied=await legacyAccess(_request,["admin","manager","supervisor"]);if(accessDenied)return accessDenied;
   const { id } = await context.params;
   const report = await getReport(id);
   if (!report) return NextResponse.json({ error: "Report not found." }, { status: 404 });

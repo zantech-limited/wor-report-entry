@@ -146,5 +146,24 @@ On Reports, choose a calendar month and export a comprehensive PDF with activity
 
 Number-only and default-only empty placeholders are excluded from summaries and exports; stored workbooks and entry defaults are retained. Part quantities that were not recorded are shown as missing, rather than assumed.
 
-Run 
-ode --import tsx scripts/check-monthly-pdf.ts` for monthly filtering, secondary-hour accounting, parts alignment and PDF pagination checks.
+Run `node --import tsx scripts/check-monthly-pdf.ts` for monthly filtering, secondary-hour accounting, parts alignment and PDF pagination checks.
+
+## Technician entry and Vercel
+
+The technician workspace is `/field`. Accounts use email/password, email verification and Admin approval. Techs see only their currently assigned jobs for the chosen month, including imported jobs linked by canonical technician name. Each job supports six technicians; Excel keeps the first two columns and appends the remaining names to Comments with surrounding spacing. Every assigned technician receives the full on-site time once in reporting.
+
+Roles are Tech, Supervisor, Manager and Admin. Supervisor schedules visits and sends on-screen alerts; Manager/Admin can export management reports by month or inclusive date range. Admin manages accounts, amendments, SMTP and delivery status. Imported jobs are read-only for technicians. Admin amendments preserve signed revisions and notify affected technicians.
+
+Before the first login, open `/setup` using the private `ADMIN_TOKEN` and create a named Admin. Set `AUTH_SECRET` to a stable random secret of at least 32 characters. After setup, the old shared token cannot unlock ordinary account-protected APIs. Set `APP_URL` to the exact origin: local Compose defaults to `http://localhost:43124`; the intended hosted origin is `https://wor-report-entry.vercel.app`.
+
+For Vercel, configure Node.js 24, `APP_URL`, `AUTH_SECRET`, `ADMIN_TOKEN` and remote database environment variables from `.env.example`. Supabase should use its transaction pooler with verified TLS and a small connection pool. The account/workflow records, encrypted SMTP settings, signatures and recovery history live in the database. SQLite, saved local connection files and Docker restart controls are not hosted production storage. Keep the same database identity and encryption secret across shared instances. Configure isolated data and disabled/test SMTP for preview deployments.
+
+Email uses SMTP only. Configure it in Admin; credentials are never returned. Reviewed signed jobs create a durable delivery queue. Delivery is attempted after submission and can be retried by Admin. For automatic retries, configure a protected Vercel scheduled GET to `/api/cron/mail` using `CRON_SECRET`, at an interval supported by the selected Vercel plan, or run the same endpoint from the Docker scheduler. A timeout with an uncertain delivery requires checking provider logs before retrying. No exactly-once SMTP guarantee is claimed.
+
+For local email testing, `docker compose --profile mail-test up -d` starts Mailpit. Set SMTP mode to local test, host `mailpit`, port `1025`, and inspect messages at `http://localhost:43126`. Never use actual customer addresses for test delivery.
+
+Install the PWA from the browser menu, or Safari Share > Add to Home Screen on iPad/iPhone. HTTPS (or desktop localhost) is required. Sign in online and unlock the encrypted device vault before offline use. Drafts remain on the device; reconnect does not upload them automatically. Review each upload and customer recipient. Upload retries are idempotent and stale edits trigger a comparison/recovery flow. Device storage can be cleared by the browser, so keep an encrypted recovery download and its device passphrase. A recovery can be imported into the same account/database on another prepared device.
+
+Full portable backups include accounts, signed snapshots and workflow data, but exclude active login sessions. Workbook-copy import remains available for old workbook-only backups. Full-system recovery preserves stable identities and requires an empty database: with a checked-out source tree and dependencies installed, set the destination DB variables, retain the original `AUTH_SECRET`, set `DESK_RESTORE_EMPTY=true`, and run `node --import tsx scripts/restore-full-system.ts /private/path/backup.json`. Existing nonempty destinations are refused. Keep the source backup and secret private.
+
+Verification commands: `node --import tsx scripts/check-accounts-field.ts` with an isolated `DATA_DIR` containing `.checks`; `node --import tsx scripts/check-offline-vault.mjs`; `node --import tsx scripts/check-customer-pdf.ts`; plus the existing workbook, template, reporting and save-recovery checks.

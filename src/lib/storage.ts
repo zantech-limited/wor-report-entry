@@ -24,7 +24,7 @@ export type StorageConfig = {
   tls: boolean;
 };
 export const dataDirectory = path.resolve(
-  process.env.DATA_DIR || path.join(process.cwd(), "data"),
+  process.env.DATA_DIR || (process.env.VERCEL ? "/tmp/zantech-desk" : path.join(process.cwd(), "data")),
 );
 export const configPath = path.join(dataDirectory, "storage.json");
 export const defaultConfig: StorageConfig = {
@@ -38,6 +38,7 @@ export const defaultConfig: StorageConfig = {
 };
 
 export function readConfig(): StorageConfig {
+  if(process.env.VERCEL && !["postgres","supabase","mysql"].includes(process.env.DB_ENGINE||""))throw new Error("Vercel requires a configured remote database.");
   const saved = existsSync(configPath)
     ? JSON.parse(readFileSync(configPath, "utf8"))
     : defaultConfig;
@@ -303,11 +304,14 @@ export class Storage {
     await this.query(
       `CREATE TABLE IF NOT EXISTS technicians (name ${short} PRIMARY KEY, active INTEGER NOT NULL DEFAULT 1)`,
     );
+    await this.query(`CREATE TABLE IF NOT EXISTS desk_records (id ${short} PRIMARY KEY, kind ${short} NOT NULL, owner_id ${short} NOT NULL, revision INTEGER NOT NULL, data ${large} NOT NULL, updated_at TEXT NOT NULL)`);
+    if(mysqlEngine){const indexes=await this.query("SELECT INDEX_NAME FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'desk_records' AND index_name = 'desk_records_kind_owner'");if(!indexes.length)await this.query("CREATE INDEX desk_records_kind_owner ON desk_records (kind, owner_id)");}
+    else await this.query("CREATE INDEX IF NOT EXISTS desk_records_kind_owner ON desk_records (kind, owner_id)");
     if(this.config.engine==='supabase') {
       // App connections use the database owner; browser API roles must not access workbooks.
-      for(const table of ['reports','suggestions','meta','parts','technicians']) await this.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`);
+      for(const table of ['reports','suggestions','meta','parts','technicians','desk_records']) await this.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`);
       const roles=await this.query("SELECT rolname FROM pg_roles WHERE rolname IN ('anon', 'authenticated')");
-      for(const role of roles) await this.query(`REVOKE ALL ON TABLE reports, suggestions, meta, parts, technicians FROM ${String(role.rolname)}`);
+      for(const role of roles) await this.query(`REVOKE ALL ON TABLE reports, suggestions, meta, parts, technicians, desk_records FROM ${String(role.rolname)}`);
     }
   }
 

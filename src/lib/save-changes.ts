@@ -7,11 +7,11 @@ export function saveChanges(previous: WorkOrder[], next: WorkOrder[]) {
   return {
     catalogLines: next.filter(line => {
       const original = before.get(line.id);
-      return !original || directoryFields.some(field => original[field] !== line[field]);
+      return !original || JSON.stringify(original.additionalTechs??[])!==JSON.stringify(line.additionalTechs??[]) || directoryFields.some(field => original[field] !== line[field]);
     }),
     suggestionsChanged: previous.length !== next.length || next.some(line => {
       const original = before.get(line.id);
-      return !original || suggestionFields.some(field => original[field] !== line[field]);
+      return !original || JSON.stringify(original.additionalTechs??[])!==JSON.stringify(line.additionalTechs??[]) || suggestionFields.some(field => original[field] !== line[field]);
     }),
   };
 }

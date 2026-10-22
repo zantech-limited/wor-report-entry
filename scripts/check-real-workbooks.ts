@@ -33,7 +33,7 @@ async function main() {
             .map(([key, value]) => [
               key,
               ["copycount", "revenue"].includes(key) &&
-              /^-?\d+(\.\d+)?$/.test(value)
+              typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value)
                 ? Number(value)
                 : value,
             ]),

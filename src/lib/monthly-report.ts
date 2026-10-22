@@ -1,9 +1,18 @@
 import {nameKey,type WorkEntry} from "./model";
-export type MonthlyReportOptions={month:string;technician?:string;customer?:string;includeUndated?:boolean};
-export function monthlyEntries(entries:WorkEntry[],options:MonthlyReportOptions){
+import {crewIncludes,crewNames} from "./crew";
+export type MonthlyReportOptions={month:string;from?:string;to?:string;technician?:string;customer?:string;includeUndated?:boolean};
+export function reportBounds(options:MonthlyReportOptions){
+  const valid=(value:string)=>/^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value;
+  if(options.from||options.to){if(!options.from||!options.to||!valid(options.from)||!valid(options.to)||options.from>options.to)throw new Error("Choose a valid inclusive date range.");return {from:options.from,to:options.to};}
   if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(options.month))throw new Error("Choose a valid report month.");
-  return entries.filter(entry=>(entry.date?entry.date.slice(0,7)===options.month:options.includeUndated&&entry.workbookMonth===options.month)
-    &&(!options.technician||[entry.technician,entry.secondaryTech].some(name=>nameKey(name)===nameKey(options.technician!)))
+  return {from:`${options.month}-01`,to:new Date(Date.UTC(Number(options.month.slice(0,4)),Number(options.month.slice(5)),0)).toISOString().slice(0,10)};
+}
+export const hasRecordedRevenue=(entry:WorkEntry)=>entry.revenue!==null&&entry.revenue!==0;
+export const hasSupplementaryDetails=(entry:WorkEntry)=>hasRecordedRevenue(entry)||[entry.partNo,entry.description,entry.comments].some(value=>!!value?.trim());
+export function monthlyEntries(entries:WorkEntry[],options:MonthlyReportOptions){
+  const {from,to}=reportBounds(options);
+  return entries.filter(entry=>(entry.date?entry.date>=from&&entry.date<=to:options.includeUndated&&!!entry.workbookMonth&&entry.workbookMonth>=from.slice(0,7)&&entry.workbookMonth<=to.slice(0,7))
+    &&(!options.technician||crewIncludes(entry,options.technician))
     &&(!options.customer||nameKey(entry.customer)===nameKey(options.customer))).sort((a,b)=>a.date.localeCompare(b.date)||a.customer.localeCompare(b.customer)||a.no.localeCompare(b.no,undefined,{numeric:true}));
 }
 export function groupedCounts(entries:WorkEntry[],field:(entry:WorkEntry)=>string){
@@ -18,8 +27,8 @@ export function monthlyAnalysis(entries:WorkEntry[]){
   const machines=new Map<string,{serial:string;model:string;customer:string;visits:number}>();
   const validSerial=(value:string)=>value.trim()&&!/^n\s*\/\s*a$/i.test(value.trim());
   for(const entry of entries){
-    const names=new Map([entry.technician,entry.secondaryTech].filter(Boolean).map(name=>[nameKey(name),name]));
-    for(const [key,name] of names){const row=crew.get(key)??{name,jobs:0,secondary:0,hours:0,timed:0,customers:new Set<string>()};row.jobs++;if(key===nameKey(entry.secondaryTech)&&key!==nameKey(entry.technician))row.secondary++;if(entry.hours!==null){row.hours+=entry.hours;row.timed++;}if(entry.customer)row.customers.add(nameKey(entry.customer));crew.set(key,row);}
+    const names=new Map(crewNames(entry).map(name=>[nameKey(name),name]));
+    for(const [key,name] of names){const row=crew.get(key)??{name,jobs:0,secondary:0,hours:0,timed:0,customers:new Set<string>()};row.jobs++;if(key!==nameKey(entry.technician))row.secondary++;if(entry.hours!==null){row.hours+=entry.hours;row.timed++;}if(entry.customer)row.customers.add(nameKey(entry.customer));crew.set(key,row);}
     if(entry.customer){const key=nameKey(entry.customer);const row=customers.get(key)??{name:entry.customer,jobs:0,hours:0,revenue:0,machines:new Set<string>(),sites:new Set<string>()};row.jobs++;row.hours+=entry.hours??0;row.revenue+=entry.revenue??0;if(validSerial(entry.serialNo))row.machines.add(nameKey(entry.serialNo));if(entry.location)row.sites.add(nameKey(entry.location));customers.set(key,row);}
     if(validSerial(entry.serialNo)){const key=nameKey(entry.serialNo);const row=machines.get(key)??{serial:entry.serialNo,model:entry.modelNo,customer:entry.customer,visits:0};row.visits++;machines.set(key,row);}
     const numbers=(entry.partNo??"").split(/\r?\n/),descriptions=(entry.description??"").split(/\r?\n/),quantities=(entry.qty??"").split(/\r?\n/);

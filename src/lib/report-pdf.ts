@@ -1,7 +1,8 @@
 import {PDFDocument,rgb,type PDFPage} from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import {readFileSync} from "node:fs";
-import {monthlyAnalysis,groupedCounts,monthlyEntries,type MonthlyReportOptions} from "./monthly-report";
+import {monthlyAnalysis,groupedCounts,monthlyEntries,reportBounds,hasRecordedRevenue,hasSupplementaryDetails,type MonthlyReportOptions} from "./monthly-report";
+import {crewNames} from "./crew";
 import {nameKey,type WorkEntry} from "./model";
 import packageInfo from "../../package.json";
 const {version}=packageInfo;
@@ -13,7 +14,8 @@ export async function createMonthlyPdf(allEntries:WorkEntry[],options:MonthlyRep
   if(!entries.length)throw new Error("No work orders match this month and these filters.");
   const analysis=monthlyAnalysis(entries),doc=await PDFDocument.create();doc.registerFontkit(fontkit);
   const font=await doc.embedFont(readFileSync(`${process.cwd()}/templates/fonts/NotoSans-Regular.ttf`),{subset:true});
-  const month=new Date(`${options.month}-01T12:00:00Z`).toLocaleDateString("en-GB",{month:"long",year:"numeric",timeZone:"UTC"});
+  const bounds=reportBounds(options);
+  const month=options.from?`${bounds.from} to ${bounds.to}`:new Date(`${options.month}-01T12:00:00Z`).toLocaleDateString("en-GB",{month:"long",year:"numeric",timeZone:"UTC"});
   doc.setTitle(`Monthly Service Report — ${month}`);doc.setAuthor("Zantech Limited");doc.setSubject("Field service activity, hours, customers, parts and recorded revenue");
   const clean=(value:string)=>value.normalize("NFC").replace(/[\u0000-\u0008\u000b-\u001f]/g,"");
   function wrap(value:string,width:number,size=9){
@@ -51,43 +53,44 @@ export async function createMonthlyPdf(allEntries:WorkEntry[],options:MonthlyRep
   const cards=[["Work orders",String(analysis.jobs)],["On-site hours",analysis.hours.toFixed(1)],["Customers",String(analysis.customers.length)],["Machines",String(analysis.machines.length)],["Completed",String(analysis.completed)],["Recorded revenue ($)",analysis.revenue.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})]];
   const cardWidth=(p.getWidth()-margin*2-24)/3;cards.forEach(([label,value],i)=>{const x=margin+(i%3)*(cardWidth+12),top=y-Math.floor(i/3)*96;p.drawRectangle({x,y:top-80,width:cardWidth,height:80,color:pale});text(p,label,x+12,top-23,9,muted);text(p,value,x+12,top-55,value.length>12?14:23,blue);});y-=205;
   y=heading(p,"Results and coverage",y,14);
-  y=paragraph(p,`Completion rate: ${(100*analysis.completed/analysis.jobs).toFixed(1)}% of all work orders. First-time fix: ${analysis.ftfYes+analysis.ftfNo?(100*analysis.ftfYes/(analysis.ftfYes+analysis.ftfNo)).toFixed(1)+"%":"not recorded"} across ${analysis.ftfYes+analysis.ftfNo} Yes/No responses. N/A and missing FTF responses are excluded from that rate.`,y);
+  y=paragraph(p,`Completion rate: ${(100*analysis.completed/analysis.jobs).toFixed(1)}% of all work orders.`,y);
   y=paragraph(p,`${analysis.timed} of ${analysis.jobs} jobs have usable arrival/departure times. ${entries.filter(e=>!e.jobStatus).length} have no job status; ${entries.filter(e=>e.revenue===null).length} have no recorded revenue; ${entries.filter(e=>!e.date).length} have no date. Missing values are not assumed to be zero or completed.`,y);
-  y=paragraph(p,"On-site hours count each job once. Technician hours include primary and secondary assignments and credit the full visit duration to each distinct technician, so their combined hours can exceed on-site hours. Shared visits are not counted twice for the same technician.",y);
+  y=paragraph(p,"On-site hours count each job once. Technician hours include all assigned technicians (up to six) and credit the full visit duration to each distinct technician, so their combined hours can exceed on-site hours. Shared visits are not counted twice for the same technician.",y);
   y=paragraph(p,"Repeat serial visits can be valid return visits. They are activity indicators, not proof of duplicate work orders or failed repairs. Recorded revenue is the entered job amount; costs, profit, invoices and payment collection cannot be inferred from these records.",y);
-  y=paragraph(p,options.includeUndated?"Dated jobs use their work-order date. Undated jobs are included only when their source workbook's first dated job establishes this month.":"Only jobs dated within the selected calendar month are included.",y);
+  y=paragraph(p,options.includeUndated?"Dated jobs use their work-order date. Undated jobs are included only when their source workbook's first dated job establishes this month.":"Only jobs dated within the selected inclusive period are included.",y);
   paragraph(p,`Generated ${new Date().toLocaleString("en-GB",{timeZone:"America/Port_of_Spain"})} (Trinidad and Tobago time).`,y);
   ({p,y}=page("Activity and service mix"));
   const days=new Map<string,number>();for(const entry of entries)if(entry.date)days.set(entry.date.slice(-2),(days.get(entry.date.slice(-2))??0)+1);
   const max=Math.max(...days.values(),1),last=new Date(Date.UTC(Number(options.month.slice(0,4)),Number(options.month.slice(5)),0)).getUTCDate();
+  if(options.from){chart(p,"Work orders by date",groupedCounts(entries,e=>e.date||"Undated"),y,"jobs",510);}else {
   text(p,"Daily work orders",margin,y,13);const base=y-218,step=(p.getWidth()-margin*2-15)/last;
   p.drawLine({start:{x:margin,y:base},end:{x:p.getWidth()-margin,y:base},thickness:1,color:line});
   for(let day=1;day<=last;day++){const value=days.get(String(day).padStart(2,"0"))??0,x=margin+(day-1)*step;const height=value/max*176;p.drawRectangle({x:x+2,y:base,width:step-4,height,color:blue});text(p,String(day),x+1,base-15,7,muted);if(value)text(p,String(value),x+2,base+height+5,7);}
   text(p,"Day of month; undated jobs are omitted from this graph.",margin,base-35,8,muted);
-  chart(p,"Service type mix",groupedCounts(entries,e=>e.serviceType),base-60);
+  chart(p,"Service type mix",groupedCounts(entries,e=>e.serviceType),base-60);}
   ({p,y}=page("Job status and SLA activity"));y=chart(p,"Job status",groupedCounts(entries,e=>e.jobStatus),y);chart(p,"SLA types",groupedCounts(entries,e=>e.slaType),y);
-  ({p,y}=page("Technician and customer workload"));y=chart(p,"Technician hours (includes secondary tech)",analysis.crew.map(row=>({label:row.name,value:row.hours})),y,"hours");chart(p,"Customer work orders",analysis.customers.map(row=>({label:row.name,value:row.jobs})),y);
+  ({p,y}=page("Technician and customer workload"));y=chart(p,"Technician hours (all assigned techs)",analysis.crew.map(row=>({label:row.name,value:row.hours})),y,"hours");chart(p,"Customer work orders with recorded revenue",analysis.customers.filter(row=>entries.some(e=>nameKey(e.customer)===nameKey(row.name)&&hasRecordedRevenue(e))).map(row=>({label:row.name,value:row.jobs})),y);
   table("Technician workload",["Technician","Jobs","Secondary","Hours","Timed jobs","Customers"],analysis.crew.map(row=>[row.name,String(row.jobs),String(row.secondary),row.hours.toFixed(2),String(row.timed),String(row.customers.size)]),[183,52,73,65,72,78]);
-  table("Customer and site activity",["Customer","Jobs","Hours","Sites","Machines","Revenue ($)"],analysis.customers.map(row=>[row.name,String(row.jobs),row.hours.toFixed(2),String(row.sites.size),String(row.machines.size),row.revenue.toFixed(2)]),[188,45,60,45,65,120]);
+  table("Customer and site activity",["Customer","Jobs","Hours","Sites","Machines","Revenue ($)"],analysis.customers.filter(row=>entries.some(e=>nameKey(e.customer)===nameKey(row.name)&&hasRecordedRevenue(e))).map(row=>[row.name,String(row.jobs),row.hours.toFixed(2),String(row.sites.size),String(row.machines.size),row.revenue.toFixed(2)]),[188,45,60,45,65,120]);
   ({p,y}=page("Machines and parts"));y=chart(p,"Most serviced models",groupedCounts(entries,e=>e.modelNo),y);chart(p,"Most used parts (part-line occurrences)",analysis.parts.map(row=>({label:row.partNo,value:row.uses})),y);
   table("Parts usage",["Part number","Description","Uses","Known qty","Qty missing"],analysis.parts.map(row=>[row.partNo,row.description||"Not consistently recorded",String(row.uses),String(row.quantity),String(row.unknownQuantity)]),[112,235,42,66,68]);
   table("Repeat visits by serial number",["Serial","First model","First customer","Visits"],analysis.machines.filter(row=>row.visits>1).map(row=>[row.serial,row.model,row.customer,String(row.visits)]),[112,145,213,53]);
-  ({p,y}=page("Revenue and first-time fix"));
-  const payment=new Map<string,number>();for(const entry of entries)if(entry.revenue!==null)payment.set(nameKey(entry.paymentMethod||"Unspecified"),(payment.get(nameKey(entry.paymentMethod||"Unspecified"))??0)+entry.revenue);
-  const payments=groupedCounts(entries,e=>e.paymentMethod??"").map(({label})=>({label,value:payment.get(nameKey(label))??0})).sort((a,b)=>b.value-a.value);
+  ({p,y}=page("Recorded revenue"));
+  const payment=new Map<string,number>();for(const entry of entries)if(hasRecordedRevenue(entry))payment.set(nameKey(nameKey(entry.paymentMethod??"")==="po"?"P.O.":entry.paymentMethod||"Unspecified"),(payment.get(nameKey(nameKey(entry.paymentMethod??"")==="po"?"P.O.":entry.paymentMethod||"Unspecified"))??0)+(entry.revenue??0));
+  const payments=groupedCounts(entries.filter(hasRecordedRevenue),e=>nameKey(e.paymentMethod??"")==="po"?"P.O.":e.paymentMethod??"").map(({label})=>({label,value:payment.get(nameKey(label))??0})).sort((a,b)=>b.value-a.value);
   // Negative adjustments are preserved in the financial table; bars show nonnegative amounts.
-  y=chart(p,"Recorded revenue by payment method",payments.map(row=>({...row,value:Math.max(0,row.value)})),y,"amount ($)");y=chart(p,"First-time fix responses",groupedCounts(entries,e=>e.ftf??""),y);paragraph(p,"Revenue bars show positive amounts; negative adjustments remain included in the payment summary and total.",y,8);
-  table("Payment method summary",["Payment method","Work orders","Recorded revenue ($)"],groupedCounts(entries,e=>e.paymentMethod??"").map(row=>[row.label,String(row.value),(payment.get(nameKey(row.label))??0).toFixed(2)]),[245,98,180]);
+  y=chart(p,"Recorded revenue by payment method",payments.map(row=>({...row,value:Math.max(0,row.value)})),y,"amount ($)");paragraph(p,"Revenue bars show positive amounts; negative adjustments remain included in the payment summary and total.",y,8);
+  table("Payment method summary",["Payment method","Work orders","Recorded revenue ($)"],groupedCounts(entries.filter(hasRecordedRevenue),e=>nameKey(e.paymentMethod??"")==="po"?"P.O.":e.paymentMethod??"").map(row=>[row.label,String(row.value),(payment.get(nameKey(row.label))??0).toFixed(2)]),[245,98,180]);
   const details=entries.map(e=>[
-    e.no,e.date,e.wor,e.customer+(e.location?"\n"+e.location:""),e.serviceType,e.technician+(e.secondaryTech?"\nSecondary: "+e.secondaryTech:""),e.serialNo+(e.modelNo?"\n"+e.modelNo:""),e.hours===null?"—":e.hours.toFixed(2),e.jobStatus,
+    e.no,e.date,e.wor,e.customer+(e.location?"\n"+e.location:""),e.serviceType,crewNames(e).join("\n"),e.serialNo+(e.modelNo?"\n"+e.modelNo:""),e.hours===null?"—":e.hours.toFixed(2),e.jobStatus,
   ]);
   table("Work-order register",["No.","Date","WOR","Customer / site","Service","Technicians","Serial / model","Hours","Status"],details,[30,62,55,154,65,123,135,48,97],true);
-  const supplementary=entries.filter(e=>e.partNo||e.description||e.comments||e.paymentMethod||e.ftf||e.revenue!==null).map(e=>[
+  const supplementary=entries.filter(hasSupplementaryDetails).map(e=>[
     `${e.no||"—"}\n${e.wor||""}\n${e.date||"Undated"}`,
     [e.partNo?"Parts:\n"+e.partNo:"",e.description?"Descriptions:\n"+e.description:"",e.qty?"Quantities:\n"+e.qty:"",e.comments?"Notes:\n"+e.comments:""].filter(Boolean).join("\n"),
-    ["Payment: "+(e.paymentMethod||"Unspecified"),"Revenue ($): "+(e.revenue===null?"Not recorded":e.revenue.toFixed(2)),"FTF: "+(e.ftf||"Unspecified")].join("\n"),
+    ["Payment: "+(e.paymentMethod||"Unspecified"),"Revenue ($): "+(e.revenue===null?"Not recorded":e.revenue.toFixed(2))].join("\n"),
   ]);
-  table("Work-order parts, billing and notes",["No. / WOR / Date","Parts and notes","Billing"],supplementary,[94,305,124]);
+  table("Work-order parts, billing and notes",["No. / WOR / Date","Parts and notes","Billing"],supplementary,[110,479,180],true);
   const pages=doc.getPages();pages.forEach((page,index)=>{page.drawLine({start:{x:margin,y:45},end:{x:page.getWidth()-margin,y:45},thickness:.5,color:line});text(page,"Internal use only",margin,28,8,red);text(page,"© Zantech Limited",page.getWidth()/2-43,28,8,muted);const footer=`v${version} · ${index+1} / ${pages.length}`;text(page,footer,page.getWidth()-margin-font.widthOfTextAtSize(footer,8),28,8,muted);});
   return Buffer.from(await doc.save());
 }

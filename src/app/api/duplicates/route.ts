@@ -1,3 +1,4 @@
+import {legacyAccess} from "@/lib/access";
 import { NextResponse } from "next/server";
 import { whenReady } from "@/lib/db";
 import { database } from "@/lib/storage";
@@ -6,6 +7,7 @@ import { duplicateKey, duplicateFields } from "@/lib/duplicates";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
+  const accessDenied=await legacyAccess(request,["admin","manager","supervisor"]);if(accessDenied)return accessDenied;
   const params = new URL(request.url).searchParams;
   const reportId = params.get("report") ?? "";
   const wor = duplicateKey(params.get("wor") ?? "");

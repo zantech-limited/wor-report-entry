@@ -25,6 +25,7 @@ export function validateReportInput(input: Report) {
   for (const line of input.lines) {
     if (!line || typeof line !== "object")
       throw new Error("Invalid work-order data.");
+    if(line.additionalTechs!==undefined&&(!Array.isArray(line.additionalTechs)||line.additionalTechs.length>4||line.additionalTechs.some(name=>typeof name!=="string"||name.trim().length>255)))throw new Error("Work orders support up to six technicians.");
     for (const field of Object.keys(blankLine("1")) as (keyof WorkOrder)[]) {
       if (typeof line[field] !== "string" || line[field].length > 100000)
         throw new Error(`Invalid work-order field: ${field}.`);

@@ -1,4 +1,5 @@
-import {nameKey, canonicalize, uniqueNames, type WorkEntry} from "./model";
+import {canonicalize, type WorkEntry} from "./model";
+import {crewIncludes,crewNames} from "./crew";
 export function filterReportEntries(
   entries: WorkEntry[],
   start: string,
@@ -16,7 +17,7 @@ export function technicianJobs(entries: WorkEntry[], technician: string) {
   return technician
     ? entries.filter(
         (entry) =>
-          nameKey(entry.technician) === nameKey(technician) || nameKey(entry.secondaryTech) === nameKey(technician),
+          crewIncludes(entry,technician),
       )
     : [];
 }
@@ -25,7 +26,7 @@ export function technicianHours(entries: WorkEntry[]) {
   const names: string[] = [];
   for (const entry of entries) {
     if (entry.hours == null) continue;
-    for (const typed of uniqueNames([entry.technician, entry.secondaryTech])) {
+    for (const typed of crewNames(entry)) {
       const name=canonicalize(typed,names);
       if (!names.includes(name)) names.push(name);
       map.set(name, (map.get(name) ?? 0) + entry.hours);
