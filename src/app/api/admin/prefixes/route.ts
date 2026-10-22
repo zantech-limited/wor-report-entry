@@ -1,3 +1,4 @@
+import {legacyAccess} from "@/lib/access";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getReport, listReports, saveReportChecked, whenReady } from "@/lib/db";
@@ -6,6 +7,7 @@ import { logEvent } from "@/lib/events";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
+ const guard=await legacyAccess(request,["admin","manager","supervisor"]);if(guard)return guard;
   const reports = await listReports();
   const id = new URL(request.url).searchParams.get("report") || reports[0]?.id;
   const report = id ? await getReport(id) : null;
@@ -16,7 +18,7 @@ export async function GET(request: Request) {
   });
 }
 export async function POST(request: Request) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
   try {
     const body = await request.json();

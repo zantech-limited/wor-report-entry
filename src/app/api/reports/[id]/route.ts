@@ -1,3 +1,4 @@
+import {legacyAccess} from "@/lib/access";
 import { NextResponse } from "next/server";
 import { deleteReport, getReport, saveReportChecked } from "@/lib/db";
 import type { Report } from "@/lib/model";
@@ -10,6 +11,7 @@ export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const accessDenied=await legacyAccess(_request,["admin","manager","supervisor"]);if(accessDenied)return accessDenied;
   const { id } = await context.params;
   const report = await getReport(id);
   if (!report) return NextResponse.json({ error: "Report not found." }, { status: 404 });
@@ -20,6 +22,7 @@ export async function PUT(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const accessDenied=await legacyAccess(request,["admin"]);if(accessDenied)return accessDenied;
   const { id } = await context.params;
   try {
     const body = (await request.json()) as Report;
@@ -38,6 +41,7 @@ export async function DELETE(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const accessDenied=await legacyAccess(_request,["admin"]);if(accessDenied)return accessDenied;
   const { id } = await context.params;
   await deleteReport(id);
   return NextResponse.json({ ok: true });

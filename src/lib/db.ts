@@ -6,6 +6,8 @@ import { rememberParts } from "./parts";
 import { workbookMonth } from "./workbook-month";
 import { saveChanges } from "./save-changes";
 import {preserveReportHistory} from "./report-history";
+import {durableReportHistory} from "./durable-history";
+import {isFieldProjection} from "./field-projection-context";
 import { customerSuggestions } from "./customers";
 import { parseWorkbook, templatePath, type DirectoryCounts } from "./excel";
 import {
@@ -110,6 +112,7 @@ export async function rememberFromLines(lines: WorkOrder[], knownRows?: Awaited<
       remember("tech", "", line.technician.trim());
     if (line.secondaryTech.trim())
       remember("tech", "", line.secondaryTech.trim());
+    for(const name of line.additionalTechs??[])if(name.trim())remember("tech","",name.trim());
   }
   await db.insertRows("INSERT INTO suggestions (kind, parent, value, uses)", [...rows.values()],
     "ON CONFLICT(kind, parent, value) DO NOTHING");
@@ -234,6 +237,7 @@ export async function listWorkEntries(): Promise<WorkEntry[]> {
       const secondaryTech = canonicalize(line.secondaryTech, technicianNames);
       if (secondaryTech && !technicianNames.includes(secondaryTech)) technicianNames.push(secondaryTech);
       entries.push({
+        additionalTechs:line.additionalTechs??[],
         reportId: row.id,
         lineIndex,
         monthLabel: reportMonthLabel([line]),
@@ -413,6 +417,10 @@ async function saveReportImpl(id: string, input: Report, expectedUpdatedAt?: str
   }
   const updatedAt = new Date(Math.max(Date.now(), Date.parse(String(existing.updated_at)) + 1)).toISOString();
   const previous=JSON.parse(String(existing.lines)) as WorkOrder[];
+  if(!isFieldProjection()){
+    const changed=previous.filter(old=>JSON.stringify(old)!==JSON.stringify(input.lines.find(line=>line.id===old.id))).map(line=>line.id);
+    for(let offset=0;offset<changed.length;offset+=200){const batch=changed.slice(offset,offset+200);if(batch.length&&(await connection.query(`SELECT id FROM desk_records WHERE kind = ? AND id IN (${batch.map(()=>"?").join(",")})`,["job",...batch])).length)throw new Error("Invalid update: use Field service to amend mobile work orders so signatures, history and technician notifications are preserved.");}
+  }
   const initialChanges = saveChanges(previous, input.lines);
   let directory: Awaited<ReturnType<Storage["query"]>> | undefined;
   if (initialChanges.catalogLines.some(line => {
@@ -451,7 +459,7 @@ async function saveReportImpl(id: string, input: Report, expectedUpdatedAt?: str
   }
   const lines = Array.isArray(input.lines) ? input.lines : [];
   const prefixMap = Array.isArray(input.prefixMap) ? input.prefixMap : [];
-  if(expectedUpdatedAt!==undefined)preserveReportHistory({...rowToReport(existing as ReportRow),monthKey:existing.month_key?String(existing.month_key):undefined});
+  if(expectedUpdatedAt!==undefined){const snapshot={...rowToReport(existing as ReportRow),monthKey:existing.month_key?String(existing.month_key):undefined};await durableReportHistory(snapshot);if(!process.env.VERCEL)preserveReportHistory(snapshot);}
   await (
     await database()
   )
@@ -476,6 +484,7 @@ async function saveReportImpl(id: string, input: Report, expectedUpdatedAt?: str
 async function deleteReportImpl(id: string): Promise<void> {
   await whenReady();
   assertWritable();
+  const rows=await (await database()).query("SELECT data FROM desk_records WHERE kind = ?",["job"]);if(rows.some(row=>JSON.parse(String(row.data)).reportId===id))throw new Error("Invalid deletion: this workbook contains tracked work orders. Preserve their signed history.");
   await (await database()).prepare("DELETE FROM reports WHERE id = ?").run(id);
   await (await database()).query("DELETE FROM meta WHERE key = ?",[`report-month:${id}`]);
   logEvent("report.deleted", "Deleted a month.");

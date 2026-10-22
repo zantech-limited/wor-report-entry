@@ -1,13 +1,15 @@
+import {legacyAccess} from "@/lib/access";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { listTechnicians, saveTechnician } from "@/lib/technicians";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function GET() {
+export async function GET(request:Request) {
+ const guard=await legacyAccess(request,["admin","manager","supervisor","tech"]);if(guard)return guard;
   return NextResponse.json({ technicians: await listTechnicians() });
 }
 export async function POST(request: Request) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
   try {
     await saveTechnician(await request.json());

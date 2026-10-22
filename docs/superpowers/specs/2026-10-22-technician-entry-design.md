@@ -165,3 +165,12 @@ New users remain pending until Admin approval; the four roles have the permissio
 - Vercel function runtimes and filesystem: https://vercel.com/docs/functions/runtimes
 - Vercel scheduled jobs: https://vercel.com/docs/cron-jobs
 - Supabase serverless database connections: https://supabase.com/docs/guides/database/connecting-to-postgres/serverless-drivers
+
+
+## Approved follow-up requirements
+
+Up to six assigned technicians share each job. All six receive history, filtering and on-site hour credit. Excel retains the first two technician columns; additional names append to Comments with separating spaces. Current assignment controls access after reassignment.
+
+Customer PDFs circle the selected SLA/billing options. No charge appears above the bold red request number and leaves all options uncircled. Visible amendments invalidate customer approval; immutable prior signed versions remain available.
+
+Deployment target is https://wor-report-entry.vercel.app, extending the existing database. SMTP is configured in Admin; OAuth is excluded. Routine implementation, verification and deployment decisions are authorized without waiting for further user approval.

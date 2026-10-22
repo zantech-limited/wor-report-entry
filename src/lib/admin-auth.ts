@@ -2,6 +2,8 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import {accountsEnabled} from "./accounts";
+import {legacyAccess} from "./access";
 import { dataDirectory } from "./storage";
 
 export const adminCookie = "desk-admin";
@@ -54,7 +56,8 @@ export function isAdmin(request: Request) {
     equalSecret(signature, sign(expiry))
   );
 }
-export function requireAdmin(request: Request): NextResponse | null {
+export async function requireAdmin(request: Request): Promise<NextResponse | null> {
+  if(accountsEnabled())return legacyAccess(request,["admin"]);
   if (!isAdmin(request))
     return NextResponse.json(
       { error: "Unlock Admin with your administrator token." },

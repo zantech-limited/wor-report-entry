@@ -8,17 +8,18 @@ import { filterReportEntries, technicianJobs } from "@/lib/reporting";
 import type { WorkEntry } from "@/lib/model";
 import Link from "next/link";
 import { masterHref, type DeskFilters } from "@/lib/desk-filters";
+import {crewNames,crewIncludes} from "@/lib/crew";
 import {monthlyEntries} from "@/lib/monthly-report";
 
 const selectClass =
   "h-11 w-full rounded-lg border border-input bg-card px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
-export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
+export function ReportBoard({ entries,canExport=true }: { entries: WorkEntry[];canExport?:boolean }) {
   const techs = useMemo(
     () =>
       unique(
         entries
-          .flatMap((entry) => [entry.technician, entry.secondaryTech])
+          .flatMap(crewNames)
           .filter(Boolean),
       ),
     [entries],
@@ -35,6 +36,9 @@ export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
   const [showGraphs, setShowGraphs] = useState(true);
   const [metric, setMetric] = useState<"jobs" | "hours">("jobs");
   const [pdfMonth,setPdfMonth]=useState("");
+  const [pdfFrom,setPdfFrom]=useState("");
+  const [pdfTo,setPdfTo]=useState("");
+  const [pdfRange,setPdfRange]=useState(false);
   const [pdfScope,setPdfScope]=useState("all");
   const [pdfTechnician,setPdfTechnician]=useState("");
   const [pdfCustomer,setPdfCustomer]=useState("");
@@ -42,12 +46,14 @@ export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
   const [exporting,setExporting]=useState(false);
   const [pdfError,setPdfError]=useState("");
   const pdfMonths=useMemo(()=>unique(entries.flatMap(entry=>[entry.date.slice(0,7),entry.workbookMonth??""]).filter(value=>/^\d{4}-\d{2}$/.test(value))).sort().reverse(),[entries]);
-  const pdfOptions={month:pdfMonth,technician:pdfScope==="technician"?pdfTechnician:undefined,customer:pdfScope==="customer"?pdfCustomer:undefined,includeUndated:pdfUndated};
-  const pdfRows=pdfMonth?monthlyEntries(entries,pdfOptions).length:0;
+  const pdfValid=pdfRange?!!pdfFrom&&!!pdfTo&&pdfFrom<=pdfTo:!!pdfMonth;
+  const pdfOptions={month:pdfMonth,from:pdfRange?pdfFrom:undefined,to:pdfRange?pdfTo:undefined,technician:pdfScope==="technician"?pdfTechnician:undefined,customer:pdfScope==="customer"?pdfCustomer:undefined,includeUndated:pdfUndated};
+  const pdfRows=pdfValid?monthlyEntries(entries,pdfOptions).length:0;
   async function exportPdf(){
     setExporting(true);setPdfError("");
     try{
       const params=new URLSearchParams({month:pdfMonth,undated:String(pdfUndated)});
+      if(pdfRange){params.set("from",pdfFrom);params.set("to",pdfTo);}
       if(pdfOptions.technician)params.set("technician",pdfOptions.technician);
       if(pdfOptions.customer)params.set("customer",pdfOptions.customer);
       const response=await fetch(`/api/reports/pdf?${params}`);
@@ -63,7 +69,7 @@ export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
 
   const techJobs = technicianJobs(filtered, tech);
   const assisted = filtered.filter(
-    (entry) => entry.secondaryTech === tech && entry.technician !== tech,
+    (entry) => crewIncludes(entry,tech) && entry.technician !== tech,
   );
   const customerJobs = filtered.filter((entry) => entry.customer === customer);
   const months = monthRows(filtered);
@@ -88,8 +94,10 @@ export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
         </p>
       </header>
 
-      <section className="grid gap-4 rounded-xl border bg-card p-4 sm:p-5" aria-label="Monthly PDF report">
+      {canExport&&<section className="grid gap-4 rounded-xl border bg-card p-4 sm:p-5" aria-label="Monthly PDF report">
         <div><h2 className="text-lg font-semibold">Monthly report PDF</h2><p className="mt-1 text-sm text-muted-foreground">Summary, graphs, technician and customer activity, parts, repeat serial visits, revenue and the full work-order register. Blank placeholders are excluded.</p></div>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={pdfRange} onChange={e=>setPdfRange(e.target.checked)}/>Export a date range / multiple months</label>
+        {pdfRange&&<div className="grid gap-3 sm:grid-cols-2"><label>PDF from<Input type="date" value={pdfFrom} onChange={e=>setPdfFrom(e.target.value)}/></label><label>PDF through<Input type="date" value={pdfTo} onChange={e=>setPdfTo(e.target.value)}/></label></div>}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="grid gap-1.5"><Label htmlFor="pdf-month">Report month</Label><select id="pdf-month" className={selectClass} value={pdfMonth} onChange={event=>setPdfMonth(event.target.value)}><option value="">Choose a month</option>{pdfMonths.map(month=><option key={month} value={month}>{labelMonth(month)}</option>)}</select></div>
           <div className="grid gap-1.5"><Label htmlFor="pdf-scope">Report scope</Label><select id="pdf-scope" className={selectClass} value={pdfScope} onChange={event=>setPdfScope(event.target.value)}><option value="all">All work orders</option><option value="technician">One technician</option><option value="customer">One customer</option></select></div>
@@ -97,9 +105,9 @@ export function ReportBoard({ entries }: { entries: WorkEntry[] }) {
           {pdfScope==="customer"&&<div className="grid gap-1.5"><Label htmlFor="pdf-customer">PDF customer</Label><select id="pdf-customer" className={selectClass} value={pdfCustomer} onChange={event=>setPdfCustomer(event.target.value)}><option value="">Choose a customer</option>{customers.map(name=><option key={name}>{name}</option>)}</select></div>}
         </div>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={pdfUndated} onChange={event=>setPdfUndated(event.target.checked)}/>Include undated jobs associated with this workbook month</label>
-        <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted-foreground">{pdfMonth?`${pdfRows} work orders match this PDF selection.`:"Choose the month to export. PDF selection is separate from the date range below."}</p><Button onClick={()=>void exportPdf()} disabled={!pdfMonth||!pdfRows||exporting||(pdfScope==="technician"&&!pdfTechnician)||(pdfScope==="customer"&&!pdfCustomer)}>{exporting?"Generating PDF…":"Export report PDF"}</Button></div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted-foreground">{pdfValid?`${pdfRows} work orders match this PDF selection.`:"Choose the month to export. PDF selection is separate from the date range below."}</p><Button onClick={()=>void exportPdf()} disabled={!pdfValid||!pdfRows||exporting||(pdfScope==="technician"&&!pdfTechnician)||(pdfScope==="customer"&&!pdfCustomer)}>{exporting?"Generating PDF…":"Export report PDF"}</Button></div>
         {pdfError&&<p role="alert" className="text-sm text-destructive">{pdfError}</p>}
-      </section>
+      </section>}
 
       <section
         aria-label="Report date range"

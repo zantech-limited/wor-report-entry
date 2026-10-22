@@ -6,7 +6,7 @@ import { logEvent } from "@/lib/events";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
   try {
     const backup = await createBackup();
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
   }
 }
 export async function POST(request: Request) {
-  const denied = requireAdmin(request);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
   try {
     const form = await request.formData();

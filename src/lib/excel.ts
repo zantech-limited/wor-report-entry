@@ -1,3 +1,4 @@
+import {excelCrewComments} from "./crew";
 import JSZip from "jszip";
 import {
   blankLine,
@@ -612,7 +613,7 @@ function dataRowXml(
       : null,
   );
   for (const key of ["jobStatus", "ftf", "comments"] as const) {
-    put(key, columns[key] ? inlineCell(ref(key), style(key), line[key]) : null);
+    put(key, columns[key] ? inlineCell(ref(key), style(key), key==="comments"?excelCrewComments(line):line[key]) : null);
   }
 
   cells.sort((a, b) => {

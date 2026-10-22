@@ -46,6 +46,7 @@ export const JOB_STATUSES = [
 export const FTF_VALUES = ["Yes", "No", "N/A"] as const;
 
 export type WorkOrder = {
+  additionalTechs?: string[];
   id: string;
   no: string;
   wor: string;
@@ -115,6 +116,7 @@ export type Suggestions = {
 };
 
 export type WorkEntry = {
+  additionalTechs?: string[];
   workbookMonth?: string;
   description?: string;
   qty?: string;
@@ -211,6 +213,7 @@ export function newEntryLine(no = ""): WorkOrder {
 }
 
 export function isBlankLine(line: WorkOrder): boolean {
+  if(line.additionalTechs?.some(name=>name.trim()))return false;
   const defaults: Partial<Record<keyof WorkOrder,string[]>> = {
     partsRequired:["no"],paymentMethod:["no charge"],revenue:["0","0.00","$0","$0.00"],jobStatus:["completed"],ftf:["n/a"],
   };

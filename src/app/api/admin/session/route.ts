@@ -1,3 +1,4 @@
+import {accountsEnabled,currentActor} from "@/lib/accounts";
 import { NextResponse } from "next/server";
 import {
   adminCookie,
@@ -13,10 +14,12 @@ import { logEvent } from "@/lib/events";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
+  if(accountsEnabled())return NextResponse.json({authenticated:(await currentActor(request.headers))?.role==="admin"});
   initializeAdminAccess();
   return NextResponse.json({ authenticated: isAdmin(request) });
 }
 export async function POST(request: Request) {
+  if(accountsEnabled())return NextResponse.json({error:"Use your named account to sign in."},{status:403});
   if (!sameOrigin(request))
     return NextResponse.json(
       { error: "Sign in from the Admin page." },
