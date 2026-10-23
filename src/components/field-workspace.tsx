@@ -196,7 +196,6 @@ export function FieldWorkspace() {
   useEffect(() => {
     if (!identity || !online || key) return;
     let cancel = false;
-    setBusy(true);
     void Promise.all([
       deskApi<{ jobs: DeskRecord<FieldJob>[] }>(`/api/field/jobs?month=${month}`),
       deskApi<{ users: TechnicianOption[] }>("/api/field/directory"),
@@ -213,9 +212,6 @@ export function FieldWorkspace() {
               ? error.message
               : "Could not load shared drafts.",
           );
-      })
-      .finally(() => {
-        if (!cancel) setBusy(false);
       });
     return () => {
       cancel = true;
@@ -670,9 +666,7 @@ export function FieldWorkspace() {
           )}
         </div>
         <p className="text-sm text-muted-foreground" role="status">
-          {busy
-            ? "Loading shared drafts…"
-            : `${jobs.length} work orders in this month.`}
+          {`${jobs.length} work orders in this month.`}
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {jobs.map((row) => (
