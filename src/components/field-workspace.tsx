@@ -46,6 +46,10 @@ export function FieldWorkspace() {
     [localSaved, setLocalSaved] = useState(""),
     [uploadBusy, setUploadBusy] = useState(false);
   const unsaved = useRef(false);
+  const uploading = useRef(false);
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   const current = useRef<LocalDraft | undefined>(undefined),
     lastActivity = useRef(Date.now()),
     context = identity ? `${identity.database}:${identity.actor.id}` : "";
@@ -166,7 +170,7 @@ export function FieldWorkspace() {
   useEffect(() => {
     if (key && identity)
       void refresh(); /* Month changes load only that month's own jobs. */
-  }, [month, key, identity]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [month, key, identity, online]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!key || !online) return;
     const timer = setInterval(() => {
@@ -225,7 +229,7 @@ export function FieldWorkspace() {
     if (!identity) return;
     const id = crypto.randomUUID(),
       job = emptyJob(id);
-    job.line.wor = `ZT-${id.replace(/-/g, "").toUpperCase()}`;
+    job.line.wor = "";
     job.line.date = todayLocal();
     job.assignedIds = schedule
       ? schedule.data.assignedIds
@@ -268,21 +272,73 @@ export function FieldWorkspace() {
     });
     setTab("entry");
   }
-  async function upload(draft: LocalDraft) {
+  async function upload(draft: LocalDraft, background = false) {
+    if (uploading.current || !key) return;
+    uploading.current = true;
     if (!navigator.onLine) {
-      setMessage("Reconnect, review the draft and then upload.");
+      uploading.current = false;
+      setMessage("Offline — your draft will sync when connected.");
       return;
     }
     setUploadBusy(true);
     setMessage("");
     try {
       await deskApi("/api/identity");
-      const response = await deskApi<{ revision: number }>("/api/field/jobs", {
+      const response = await deskApi<{
+        revision: number;
+        requestNumber?: string;
+      }>("/api/field/jobs", {
         id: draft.id,
         job: draft.job,
         revision: draft.revision,
         operationId: draft.operationId,
         submit: draft.submit,
+      });
+      // Advance the live editor before any asynchronous vault writes. An edit
+      // made during acknowledgement must use the newly committed revision.
+      if (current.current?.id === draft.id) {
+        current.current = {
+          ...current.current,
+          revision: response.revision,
+          job: {
+            ...current.current.job,
+            line: {
+              ...current.current.job.line,
+              wor: current.current.job.line.wor || response.requestNumber || "",
+            },
+          },
+        };
+        setSelected(current.current);
+      }
+      const savedJob: DeskRecord<FieldJob> = {
+        id: draft.id,
+        kind: "job",
+        ownerId: identity!.actor.id,
+        revision: response.revision,
+        updatedAt: new Date().toISOString(),
+        data: {
+          ...draft.job,
+          state: draft.submit ? "submitted" : draft.job.state,
+          line: {
+            ...draft.job.line,
+            wor: response.requestNumber || draft.job.line.wor,
+          },
+        },
+      };
+      const cacheId = "cache:" + draft.job.line.date.slice(0, 7);
+      const cache = await vaultGet<{
+        jobs: DeskRecord<FieldJob>[];
+        users: TechnicianOption[];
+        schedules: DeskRecord<Schedule>[];
+      }>(context, key!, cacheId);
+      // Retain a durable offline copy before removing the acknowledged outbox item.
+      await vaultPut(context, key!, cacheId, {
+        users: cache?.users || users,
+        schedules: cache?.schedules || schedules,
+        jobs: [
+          savedJob,
+          ...(cache?.jobs || []).filter((row) => row.id !== draft.id),
+        ],
       });
       const newer = await acknowledgeDraft(
         context,
@@ -290,33 +346,92 @@ export function FieldWorkspace() {
         draft.id,
         draft.operationId,
         response.revision,
+        response.requestNumber,
       );
       if (
         current.current?.id === draft.id &&
         current.current.operationId === draft.operationId
       ) {
-        current.current = undefined;
-        setSelected(undefined);
+        if (background) {
+          current.current = {
+            ...draft,
+            revision: response.revision,
+            job: {
+              ...draft.job,
+              line: {
+                ...draft.job.line,
+                wor: response.requestNumber || draft.job.line.wor,
+              },
+            },
+          };
+          setSelected(current.current);
+        } else {
+          current.current = undefined;
+          setSelected(undefined);
+        }
       } else if (newer && current.current?.id === draft.id) {
-        current.current = { ...current.current, revision: response.revision };
+        current.current = {
+          ...current.current,
+          revision: response.revision,
+          job: {
+            ...current.current.job,
+            line: {
+              ...current.current.job.line,
+              wor: current.current.job.line.wor || response.requestNumber || "",
+            },
+          },
+        };
         setSelected(current.current);
       }
-      setMessage(
-        `Uploaded revision ${response.revision}.${draft.submit ? " Customer copy queued; check delivery status below." : ""}`,
+      setLocalSaved(
+        newer
+          ? "New changes saved on this device — sync pending"
+          : "Synced — available on your other devices",
       );
-      await refresh();
+      if (!background)
+        setMessage(
+          `Uploaded revision ${response.revision}.${draft.submit ? " Customer copy queued; check delivery status below." : ""}`,
+        );
+      if (background) {
+        setDrafts(await vaultDrafts(context, key!));
+        if (draft.job.line.date.startsWith(month))
+          setJobs((rows) => [
+            savedJob,
+            ...rows.filter((row) => row.id !== draft.id),
+          ]);
+      } else await refresh();
     } catch (error) {
       const text = (error as Error).message;
       setMessage(text);
       if ((error as { status?: number }).status === 409) {
-        const conflict = { ...draft, conflict: text };
+        const latest =
+          current.current?.id === draft.id ? current.current : draft;
+        const conflict = { ...latest, conflict: text };
+        if (current.current?.id === draft.id) {
+          current.current = conflict;
+          setSelected(conflict);
+        }
         await vaultPut(context, key!, "draft:" + draft.id, conflict);
         setDrafts(await vaultDrafts(context, key!));
       }
     } finally {
+      uploading.current = false;
       setUploadBusy(false);
     }
   }
+  useEffect(() => {
+    if (!key || !online || uploadBusy || unsaved.current) return;
+    const draft = drafts.find(
+      (d) =>
+        !d.submit &&
+        !d.conflict &&
+        d.job.line.date &&
+        d.job.assignedIds.every(Boolean),
+    );
+    if (!draft) return;
+    syncTimer.current = setTimeout(() => void upload(draft, true), 2000);
+    return () => clearTimeout(syncTimer.current);
+  }, [drafts, key, online]); // eslint-disable-line react-hooks/exhaustive-deps
   async function signOut() {
     if (
       drafts.length &&
@@ -422,7 +537,7 @@ export function FieldWorkspace() {
       </section>
     );
   return (
-    <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-6">
+    <div className="mx-auto grid w-full max-w-6xl gap-5 px-2 py-4 sm:px-6 sm:py-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
@@ -517,7 +632,10 @@ export function FieldWorkspace() {
           working offline.
         </p>
       </details>
-      <nav className="flex gap-2 overflow-x-auto" aria-label="Field workspace">
+      <nav
+        className="sticky top-0 z-30 flex gap-2 overflow-x-auto rounded-xl border bg-background/95 p-2 backdrop-blur"
+        aria-label="Field workspace"
+      >
         {[
           ["jobs", "My work orders"],
           ["entry", "Entry"],
@@ -650,7 +768,7 @@ export function FieldWorkspace() {
               {localSaved || "Device draft"} ·{" "}
               {selected.submit
                 ? "Signed version ready; review uploads to send"
-                : "Not yet uploaded"}
+                : "Draft — syncs automatically when connected"}
             </p>
             <FieldJobEditor
               key={selected.id}
@@ -660,7 +778,12 @@ export function FieldWorkspace() {
               onChange={edit}
               onReady={() => {
                 const draft = current.current;
-                if (draft) void persist({ ...draft, submit: true });
+                if (draft)
+                  void persist({
+                    ...draft,
+                    submit: true,
+                    operationId: crypto.randomUUID(),
+                  });
                 setTab("uploads");
               }}
             />
@@ -679,8 +802,8 @@ export function FieldWorkspace() {
         <section className="grid gap-4">
           <h2 className="text-xl font-semibold">Review before uploading</h2>
           <p className="text-sm text-muted-foreground">
-            Reconnect does not upload automatically. Review each draft and
-            customer recipient. Unsigned drafts upload without sending an email.
+            Unsigned drafts sync automatically when connected. Review the
+            customer recipient before sending a signed copy.
           </p>
           {drafts.map((draft) => (
             <article

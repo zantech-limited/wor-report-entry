@@ -5,7 +5,11 @@ export async function legacyAccess(
   request: Request,
   roles: Role[] = ["admin", "manager", "supervisor"],
 ) {
-  const actor = await currentActor(request.headers);
+  let actor;
+  try { actor = await currentActor(request.headers); } catch {
+    console.error("Service desk authentication storage unavailable");
+    return NextResponse.json({error:"Service desk storage is unavailable. Ask Admin to check the deployed database connection and account configuration. Your device drafts are retained."},{status:503});
+  }
   if (!actor)
     return NextResponse.json(
       { error: "Sign in with an approved account." },

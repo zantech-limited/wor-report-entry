@@ -147,3 +147,8 @@
     outline-offset: 2px;
   }
 }
+
+@media (orientation: portrait) and (max-width: 640px) {
+  .signature-fullscreen-surface { height: calc(100dvh - 190px); display: flex; align-items: center; justify-content: center; }
+  .signature-fullscreen-surface svg { flex: none; width: min(calc(100dvh - 210px), calc((100vw - 32px) * 3.75)); max-width: none; transform: rotate(90deg); }
+}

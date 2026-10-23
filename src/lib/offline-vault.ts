@@ -137,6 +137,7 @@ export function acknowledgeDraft(
   id: string,
   operationId: string,
   revision: number,
+  requestNumber?: string,
 ) {
   const task = tail
     .catch(() => {})
@@ -151,6 +152,7 @@ export function acknowledgeDraft(
       }
       const advanced = {
         ...draft,
+        ...(requestNumber ? {job: {...draft.job, line: {...draft.job.line, wor: draft.job.line.wor || requestNumber}}} : {}),
         revision: Math.max(draft.revision, revision),
       };
       await db.put(

@@ -1,4 +1,4 @@
-const CACHE = "zantech-shell-v051";
+const CACHE = "zantech-shell-v052";
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
@@ -14,7 +14,7 @@ self.addEventListener("install", (event) => {
           ].map((match) => match[1]),
         ),
       ];
-      await cache.addAll([...assets, "/icons/desk.svg"]);
+      await cache.addAll([...assets, "/icons/desk.svg", "/work-order-template.png"]);
     })(),
   );
 });
@@ -35,7 +35,7 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) return;
   if (
     url.pathname.startsWith("/_next/static/") ||
-    url.pathname.startsWith("/icons/")
+    url.pathname.startsWith("/icons/") || url.pathname === "/work-order-template.png"
   ) {
     event.respondWith(
       caches.open(CACHE).then(async (cache) => {

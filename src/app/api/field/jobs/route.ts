@@ -1,4 +1,5 @@
 import { actorFor, jsonBody, errorResponse, HttpError } from "@/lib/http";
+import { after } from "next/server";
 import { processMailQueue } from "@/lib/mail-queue";
 import { visibleJobs, saveFieldJob } from "@/lib/field-jobs";
 export const dynamic = "force-dynamic";
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
     );
     if (body.submit === true) {
       try {
-        await processMailQueue(1);
+        after(async () => { try { await processMailQueue(1); } catch { /* Queue remains retryable. */ } });
       } catch {
         /* The job is already durable; Admin can retry the queue. */
       }

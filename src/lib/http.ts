@@ -41,6 +41,8 @@ export function errorResponse(error: unknown) {
   if (error instanceof HttpError)
     return Response.json({ error: error.message }, { status: error.status });
   const text = error instanceof Error ? error.message : "";
+  if (/^(Vercel requires|Configure AUTH_SECRET|Configure APP_URL)/.test(text)) return Response.json({error:text},{status:503});
+  if (!/^(Conflict:|Choose |Enter |Date |Invalid |Work order|Only |Your |You |An assigned|Each assigned|Customer-visible|The signed|Complete |Submitted |Ask Admin|Describe |That schedule|Include |Changing|Completion |SMTP |Use SMTP)/.test(text)) console.error("Service desk operation failed", {name: error instanceof Error ? error.name : "Unknown", code: (error as {code?:string})?.code});
   const safe =
     /^(Conflict:|Choose |Enter |Date |Invalid |Work order |Work orders |Only |Your |You |An assigned|Each assigned|Customer-visible|The signed|Complete |Submitted |Ask Admin|Describe |That schedule|Include |Changing the month|Completion |SMTP |Use SMTP)/.test(
       text,

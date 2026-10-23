@@ -1,4 +1,5 @@
 "use client";
+import { readJsonResponse } from "@/lib/response-json";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fileMonthStamp, type Report, type WorkOrder } from "@/lib/model";
@@ -39,7 +40,7 @@ export function DuplicateNotice({
       void fetch(`/api/duplicates?${query}`, { signal: controller.signal })
         .then(async (response) => {
           if (!response.ok) return;
-          const data = await response.json();
+          const data = await readJsonResponse(response);
           setHistorical(data.matches);
           setHistoricalTotal(data.total ?? 0);
           setHistoricalCounts(data.counts ?? {wor: 0, serial: 0});

@@ -1,4 +1,5 @@
 "use client";
+import { readJsonResponse } from "@/lib/response-json";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,7 @@ async function api(url: string, body?: unknown) {
           body: JSON.stringify(body),
         },
   );
-  const data = await response.json();
+  const data = await readJsonResponse(response);
   if (!response.ok)
     throw new Error(data.error || "Could not load the catalog.");
   return data;
