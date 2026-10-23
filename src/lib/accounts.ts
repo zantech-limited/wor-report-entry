@@ -155,16 +155,45 @@ export async function currentActor(headers: Headers): Promise<Actor | null> {
     .get("accounts-ready");
   if (!ready) return null;
   const session = await auth().api.getSession({ headers });
-  if (!session) return null;
+  if (!session?.user) return null;
   const user = session.user;
-  if (user.status !== "active" || !ROLES.includes(user.role as Role))
-    return null;
+  let role = String(user.role || "");
+  let status = String(user.status || "");
+  let technicianName = String(user.technicianName || "");
+  let name = user.name;
+  let email = user.email;
+  try {
+    const column = db.config.engine === "mysql" ? "`technicianName`" : '"technicianName"';
+    const row = (await db
+      .prepare(
+        `SELECT id, name, email, role, status, ${column} AS technician FROM desk_user WHERE id = ?`,
+      )
+      .get(session.user.id)) as
+      | {
+          name?: string;
+          email?: string;
+          role?: string;
+          status?: string;
+          technician?: string;
+        }
+      | undefined;
+    if (row) {
+      role = String(row.role || "");
+      status = String(row.status || "");
+      technicianName = String(row.technician || "");
+      name = String(row.name || name);
+      email = String(row.email || email);
+    }
+  } catch {
+    /* Session fields remain when the account table is not readable. */
+  }
+  if (status !== "active" || !ROLES.includes(role as Role)) return null;
   return {
     id: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role as Role,
-    status: user.status,
-    technicianName: user.technicianName,
+    name,
+    email,
+    role: role as Role,
+    status,
+    technicianName,
   };
 }

@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { processMailQueue } from "@/lib/mail-queue";
+import { drainMailQueue } from "@/lib/mail-queue";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 export async function GET(request: Request) {
@@ -12,5 +12,5 @@ export async function GET(request: Request) {
     !timingSafeEqual(Buffer.from(provided), Buffer.from(`Bearer ${expected}`))
   )
     return Response.json({ error: "Unauthorized." }, { status: 401 });
-  return Response.json({ results: await processMailQueue(2) });
+  return Response.json({ results: await drainMailQueue() });
 }

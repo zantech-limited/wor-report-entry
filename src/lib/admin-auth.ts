@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { NextResponse } from "next/server";
@@ -27,9 +27,9 @@ function adminToken() {
   return readFileSync(filename, "utf8").trim();
 }
 export function equalSecret(a: string, b: string) {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
+  const left = createHash("sha256").update(String(a)).digest();
+  const right = createHash("sha256").update(String(b)).digest();
+  return timingSafeEqual(left, right);
 }
 export function verifyToken(token: string) {
   return equalSecret(token, adminToken());

@@ -1,4 +1,16 @@
-const CACHE = "zantech-shell-v052";
+const CACHE = "zantech-shell-v060";
+async function cacheEach(cache, urls) {
+  await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const response = await fetch(url, { cache: "reload" });
+        if (response.ok) await cache.put(url, response);
+      } catch {
+        /* A missing static file must not stop the offline shell from installing. */
+      }
+    }),
+  );
+}
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
@@ -14,7 +26,7 @@ self.addEventListener("install", (event) => {
           ].map((match) => match[1]),
         ),
       ];
-      await cache.addAll([...assets, "/icons/desk.svg", "/work-order-template.png"]);
+      await cacheEach(cache, [...assets, "/icons/desk.svg", "/work-order-template.png"]);
     })(),
   );
 });
@@ -41,9 +53,13 @@ self.addEventListener("fetch", (event) => {
       caches.open(CACHE).then(async (cache) => {
         const saved = await cache.match(request);
         if (saved) return saved;
-        const response = await fetch(request);
-        if (response.ok) await cache.put(request, response.clone());
-        return response;
+        try {
+          const response = await fetch(request);
+          if (response.ok) await cache.put(request, response.clone());
+          return response;
+        } catch {
+          return new Response("", { status: 504 });
+        }
       }),
     );
     return;
@@ -66,4 +82,3 @@ self.addEventListener("fetch", (event) => {
     );
   }
 });
-

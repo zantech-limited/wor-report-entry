@@ -1,6 +1,6 @@
 import { actorFor, jsonBody, errorResponse, HttpError } from "@/lib/http";
 import { smtpSettings, saveSmtpSettings, sendSmtp } from "@/lib/smtp";
-import { processMailQueue } from "@/lib/mail-queue";
+import { drainMailQueue } from "@/lib/mail-queue";
 import { records, record, updateRecord } from "@/lib/records";
 import { database } from "@/lib/storage";
 export const dynamic = "force-dynamic";
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
     }
     return Response.json({
       ok: true,
-      results: body.process ? await processMailQueue(2) : [],
+      results: body.process ? await drainMailQueue(10) : [],
     });
   } catch (error) {
     return errorResponse(error);

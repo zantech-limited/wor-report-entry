@@ -257,7 +257,7 @@ export function CustomerFormPreview({
                       ? 0
                       : -1
                   }
-                  style={position(choice.x - 4, choice.y - 3, choice.w + 8, 28)}
+                  style={position(choice.x - 8, choice.y - 10, Math.max(choice.w + 16, 44), 44)}
                   className={`rounded-[50%] border-2 focus-visible:outline-2 focus-visible:outline-blue-600 ${checked ? "border-red-600" : "border-transparent hover:border-red-300"}`}
                   onClick={() =>
                     onChange(selectServiceOption(job, choice.label as FormOption))

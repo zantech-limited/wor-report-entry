@@ -36,6 +36,7 @@ import {
 } from "./db";
 import type { Actor } from "./accounts";
 import { crewIncludes, crewNames } from "./crew";
+import { linkedTechnicianIdentities } from "./technician-identity";
 import { withFieldProjection } from "./field-projection-context";
 
 export function canSeeJob(actor: Actor, row: DeskRecord<FieldJob>) {
@@ -56,16 +57,12 @@ export async function assignedUsers(ids: string[]) {
   )
     throw new Error("Choose one to six distinct technicians.");
   const db = await database();
+  const linked = await linkedTechnicianIdentities(db);
   const users = [];
   for (const id of ids) {
-    const row = await db
-      .prepare(
-        `SELECT id, name, status, ${db.config.engine === "mysql" ? "`technicianName`" : '"technicianName"'} FROM desk_user WHERE id = ?`,
-      )
-      .get(id);
-    if (!row || row.status !== "active" || !String(row.technicianName).trim())
-      throw new Error("An assigned technician is unavailable.");
-    users.push({ id: String(row.id), name: String(row.technicianName) });
+    const match = linked.find((user) => user.id === id);
+    if (!match) throw new Error("An assigned technician is unavailable.");
+    users.push({ id: match.id, name: match.technician });
   }
   if (new Set(users.map((user) => nameKey(user.name))).size !== users.length)
     throw new Error(
@@ -138,6 +135,16 @@ export function validateFieldJob(value: unknown): asserts value is FieldJob {
     throw new Error("Enter a valid requester email.");
   if (typeof job.scheduleId !== "string" || job.scheduleId.length > 100)
     throw new Error("Invalid schedule link.");
+  if (
+    job.savedOn !== undefined &&
+    (typeof job.savedOn !== "string" || job.savedOn.length > 80)
+  )
+    throw new Error("Invalid device label.");
+  if (
+    job.savedAt !== undefined &&
+    (typeof job.savedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(job.savedAt))
+  )
+    throw new Error("Invalid save time.");
 }
 export async function saveFieldJob(
   actor: Actor,
@@ -266,6 +273,8 @@ export async function saveFieldJob(
       reportId: previous?.data.reportId || legacySource?.id || "",
       signature: input.signature,
       technicianSignature: input.technicianSignature,
+      savedOn: input.savedOn,
+      savedAt: input.savedAt,
     };
     const digest = hashSnapshot(data),
       oldDigest = previous ? hashSnapshot(previous.data) : "";

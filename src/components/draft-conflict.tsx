@@ -11,7 +11,10 @@ export function DraftConflict({
   onResolve,
 }: {
   draft: LocalDraft;
-  onResolve: (server: DeskRecord<FieldJob>, useLocal: boolean) => void;
+  onResolve: (
+    server: DeskRecord<FieldJob>,
+    choice: "local" | "server" | "both",
+  ) => void;
 }) {
   const [server, setServer] = useState<DeskRecord<FieldJob>>(),
     [message, setMessage] = useState("");
@@ -44,16 +47,20 @@ export function DraftConflict({
             </section>
           </div>
           <p className="text-sm">
-            Your current device copy is archived before either choice.
-            Reapplying local details uses the latest crew assignments and clears
-            approval so the customer can sign the reviewed result again.
+            Your current device copy is archived before a choice. Reapplying
+            local details uses the latest crew assignments and clears approval
+            so the customer can sign the reviewed result again. Keep both leaves
+            the server copy in place and saves your device copy as a new draft.
           </p>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => onResolve(server, false)}>
+            <Button variant="outline" onClick={() => onResolve(server, "server")}>
               Continue from server copy
             </Button>
-            <Button variant="outline" onClick={() => onResolve(server, true)}>
+            <Button variant="outline" onClick={() => onResolve(server, "local")}>
               Reapply my local details for review
+            </Button>
+            <Button variant="outline" onClick={() => onResolve(server, "both")}>
+              Keep both copies
             </Button>
           </div>
         </>

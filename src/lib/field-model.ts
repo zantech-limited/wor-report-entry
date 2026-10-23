@@ -34,6 +34,8 @@ export type FieldJob = {
   signedHash?: string;
   signedRevisionId?: string;
   amendmentReason?: string;
+  savedOn?: string;
+  savedAt?: string;
 };
 export const emptyFields = () =>
   Object.fromEntries(

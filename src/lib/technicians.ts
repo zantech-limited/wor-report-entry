@@ -2,6 +2,7 @@ import { database, assertWritable } from "./storage";
 import { whenReady } from "./db";
 import { logEvent } from "./events";
 import { nameKey } from "./model";
+import { linkedTechnicianIdentities } from "./technician-identity";
 export type Technician = { name: string; active: boolean };
 export async function technicianStates() {
   return (
@@ -20,6 +21,8 @@ export async function listTechnicians(): Promise<Technician[]> {
   const states = await technicianStates();
   const map = new Map(names.map((row) => [nameKey(String(row.value)), {name:String(row.value),active:true}]));
   for (const row of states) map.set(nameKey(row.name), row);
+  for (const person of await linkedTechnicianIdentities(db))
+    map.set(nameKey(person.technician), { name: person.technician, active: true });
   return [...map]
     .map(([, row]) => row)
     .sort((a, b) => a.name.localeCompare(b.name));

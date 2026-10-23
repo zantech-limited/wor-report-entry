@@ -1,4 +1,5 @@
 import { database, assertWritable, type Storage } from "./storage";
+import { linkedTechnicianIdentities } from "./technician-identity";
 import { logEvent } from "./events";
 import { validateReportInput } from "./report-validation";
 import { technicianStates } from "./technicians";
@@ -142,6 +143,10 @@ export async function getSuggestions(): Promise<Suggestions> {
   for (const state of states) {
     for (let i = techs.length - 1; i >= 0; i--) if (nameKey(techs[i]) === nameKey(state.name)) techs.splice(i, 1);
     if (state.active) techs.push(state.name);
+  }
+  for (const person of await linkedTechnicianIdentities(db)) {
+    for (let i = techs.length - 1; i >= 0; i--) if (nameKey(techs[i]) === nameKey(person.technician)) techs.splice(i, 1);
+    techs.push(person.technician);
   }
   techs.sort((a, b) => a.localeCompare(b));
   return customerSuggestions({

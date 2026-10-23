@@ -95,6 +95,12 @@ export async function processMailQueue(limit = 2) {
         error && typeof error === "object" && "code" in error
           ? String(error.code)
           : "";
+      const raw = error instanceof Error ? error.message : "";
+      const safeError = /^(SMTP is not configured\.|Invalid recipient email\.|The frozen customer copy is unavailable\.)$/.test(
+        raw,
+      )
+        ? raw
+        : "Delivery did not complete. Check SMTP settings and provider delivery history before retrying.";
       const safeRetry = ["EAUTH", "ECONNECTION", "EDNS", "ETLS"].includes(code);
       await db.transaction(async () => {
         const row = await record<Delivery>(claimed.id, true);
@@ -108,12 +114,27 @@ export async function processMailQueue(limit = 2) {
                   ? "uncertain"
                   : "failed",
             leaseUntil: undefined,
-            lastError:
-              "Delivery did not complete. Check SMTP settings and provider delivery history before retrying.",
+            lastError: safeError,
           });
       });
-      results.push({ id: claimed.id, state: "failed" });
+      results.push({ id: claimed.id, state: "failed", error: safeError });
     }
+  }
+  return results;
+}
+
+/** Send queued mail until the queue is idle, a delivery fails, or the time box ends. */
+export async function drainMailQueue(max = 20) {
+  const results: Awaited<ReturnType<typeof processMailQueue>> = [];
+  const seen = new Set<string>();
+  const started = Date.now();
+  while (results.length < max && Date.now() - started < 45_000) {
+    const batch = await processMailQueue(1);
+    const item = batch[0];
+    if (!item || seen.has(item.id)) break;
+    seen.add(item.id);
+    results.push(item);
+    if (item.state !== "sent") break;
   }
   return results;
 }

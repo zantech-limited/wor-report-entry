@@ -1,4 +1,5 @@
 import {legacyAccess} from "@/lib/access";
+import { clientErrorMessage } from "@/lib/http";
 import { readFileSync } from "node:fs";
 import { NextResponse } from "next/server";
 import { getReport, getReportBlob } from "@/lib/db";
@@ -8,6 +9,7 @@ import { logEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function GET(
   _request: Request,
@@ -31,7 +33,9 @@ export async function GET(
       },
     });
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : "Could not build the workbook.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: clientErrorMessage(cause, "Could not build the workbook.") },
+      { status: 500 },
+    );
   }
 }
