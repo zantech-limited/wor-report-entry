@@ -1,9 +1,19 @@
 import type { NextConfig } from "next";
 
+const tracedFiles = [
+  "./templates/*.xlsm",
+  "./templates/fonts/*",
+  "./public/work-order-template.png",
+];
+
 const nextConfig: NextConfig = {
   output: "standalone",
-  serverExternalPackages:["better-sqlite3"],
-  outputFileTracingIncludes:{"/api/reports/pdf":["./templates/fonts/*", "./public/work-order-template.png"],"/api/field/jobs/*/pdf":["./templates/fonts/*", "./public/work-order-template.png"],"/api/field/mail":["./templates/fonts/*", "./public/work-order-template.png"],"/api/field/jobs":["./templates/fonts/*", "./public/work-order-template.png"],"/api/cron/mail":["./templates/fonts/*", "./public/work-order-template.png"]},
+  serverExternalPackages: ["better-sqlite3"],
+  // `*` matches every App Router page and route, including `/`.
+  // The workbook path is built from process.cwd(), so the tracer does not follow it.
+  outputFileTracingIncludes: {
+    "*": tracedFiles,
+  },
 };
 
 export default nextConfig;
