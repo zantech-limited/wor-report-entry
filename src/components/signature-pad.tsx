@@ -44,8 +44,8 @@ export function SignaturePad({
   }
   const pad = (
     <svg
-      role="img"
-      aria-label={`${label} drawing area`}
+      role="application"
+      aria-label={`${label} drawing area. Draw with a finger, pen, or mouse.`}
       viewBox="0 0 600 160"
       className="h-auto w-full touch-none rounded-lg border bg-white text-slate-900"
       onPointerDown={(event) => {

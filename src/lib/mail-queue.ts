@@ -122,3 +122,19 @@ export async function processMailQueue(limit = 2) {
   }
   return results;
 }
+
+/** Send queued mail until the queue is idle, a delivery fails, or the time box ends. */
+export async function drainMailQueue(max = 20) {
+  const results: Awaited<ReturnType<typeof processMailQueue>> = [];
+  const seen = new Set<string>();
+  const started = Date.now();
+  while (results.length < max && Date.now() - started < 45_000) {
+    const batch = await processMailQueue(1);
+    const item = batch[0];
+    if (!item || seen.has(item.id)) break;
+    seen.add(item.id);
+    results.push(item);
+    if (item.state !== "sent") break;
+  }
+  return results;
+}

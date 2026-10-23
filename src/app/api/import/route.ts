@@ -1,10 +1,12 @@
 import {legacyAccess} from "@/lib/access";
+import { clientErrorMessage } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { importWorkbook } from "@/lib/db";
 import { isBlankLine } from "@/lib/model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   const accessDenied=await legacyAccess(request,["admin"]);if(accessDenied)return accessDenied;
@@ -30,7 +32,9 @@ export async function POST(request: Request) {
       lineCount: report.lines.filter((line) => !isBlankLine(line)).length,
     });
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : "Could not import that workbook.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json(
+      { error: clientErrorMessage(cause, "Could not import that workbook.") },
+      { status: 400 },
+    );
   }
 }
