@@ -1,4 +1,5 @@
 "use client";
+import { readJsonResponse } from "@/lib/response-json";
 import { workbookMonth, monthBounds } from "@/lib/workbook-month";
 import { formatCopycount } from "@/lib/copycount";
 import { delayedEntryField, blocksEntryAutosave, entrySaveDelay } from "@/lib/entry-autosave";
@@ -142,7 +143,7 @@ export function ReportEditor({
       try{
         const response=await fetch(`/api/reports/${initial.id}`,{cache:"no-store",signal:controller.signal});
         if(!response.ok)throw new Error("Could not read the current workbook.");
-        const body=await response.json() as {report:Report};
+        const body=await readJsonResponse(response) as {report:Report};
         if(!live)return false;
         const fresh=body.report;
         if(fresh.updatedAt!==latest.current.updatedAt){
@@ -304,7 +305,7 @@ export function ReportEditor({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(snapshot),
           });
-          const body = (await response.json()) as {
+          const body = (await readJsonResponse(response)) as {
             error?: string;
             suggestions?: Suggestions;
             saved?: boolean;

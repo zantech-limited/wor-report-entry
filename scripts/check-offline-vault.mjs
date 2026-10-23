@@ -36,9 +36,11 @@ const preserved = await acknowledgeDraft(
   "job-1",
   "operation-a",
   2,
+  "WRETO-16719",
 );
 assert.equal(preserved.job.line.customer, "Newer unsent edit");
 assert.equal(preserved.revision, 2);
+assert.equal(preserved.job.line.wor,"WRETO-16719");
 assert.equal((await vaultDrafts(context, key)).length, 1);
 assert.equal(await vaultGet("other-db:tech-a", key, "draft:job-1"), undefined);
 await assert.rejects(unlockVault(context, "incorrect-passphrase"));

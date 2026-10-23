@@ -1,3 +1,4 @@
+import { readJsonResponse } from "./response-json";
 export async function deskApi<T = Record<string, unknown>>(
   url: string,
   body?: unknown,
@@ -9,17 +10,7 @@ export async function deskApi<T = Record<string, unknown>>(
     body: body === undefined ? undefined : JSON.stringify(body),
     cache: "no-store",
   });
-  const data = await response.json();
-  if (!response.ok)
-    throw Object.assign(
-      new Error(
-        data.error?.message ||
-          data.error ||
-          data.message ||
-          "The request failed.",
-      ),
-      { status: response.status },
-    );
+  const data = await readJsonResponse(response);
   return data as T;
 }
 export function todayLocal() {

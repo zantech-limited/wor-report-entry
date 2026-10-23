@@ -43,10 +43,10 @@ export function FieldJobEditor({
       .then((data) => setCatalog(data.parts))
       .catch(() => {});
   }, []);
-  const [preview, setPreview] = useState(false),
-    [reviewed, setReviewed] = useState(false),
+  const [reviewed, setReviewed] = useState(false),
     [signing, setSigning] = useState(false),
     [error, setError] = useState("");
+  useEffect(() => setReviewed(false), [job.line.wor]);
   function change(next: FieldJob) {
     setReviewed(false);
     const content = (value: FieldJob) =>
@@ -59,7 +59,15 @@ export function FieldJobEditor({
     });
   }
   function line(field: keyof WorkOrder, value: string) {
-    change({ ...job, line: { ...job.line, [field]: value } });
+    const next = { ...job, line: { ...job.line, [field]: value } };
+    if (
+      field === "paymentMethod" ||
+      field === "slaType" ||
+      field === "serviceType" ||
+      field === "revenue"
+    )
+      next.fields = { ...job.fields, serviceOption: undefined };
+    change(next);
   }
   function detail(field: keyof ContactFields, value: string) {
     change({ ...job, fields: { ...job.fields, [field]: value } });
@@ -141,6 +149,12 @@ export function FieldJobEditor({
   }
   async function ready() {
     setError("");
+    if (!job.line.wor) {
+      setError(
+        "Connect and let the draft sync before signing, so its request number is included.",
+      );
+      return;
+    }
     if (!reviewed || !job.signature) {
       setError("Review the form and capture the customer's signature first.");
       return;
@@ -165,244 +179,259 @@ export function FieldJobEditor({
     }
   }
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,.8fr)]">
+    <div className="grid gap-5">
       <div className="grid gap-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-semibold">
             {readOnly ? "Work order" : "Work order entry"}
           </h2>
-          <button
-            className="text-sm underline xl:hidden"
-            onClick={() => setPreview(!preview)}
-          >
-            {preview ? "Hide" : "Show"} customer form
-          </button>
         </div>
-        <section className="grid gap-4 rounded-xl border bg-card p-4">
-          <h3 className="font-semibold">Client and request</h3>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {input("Request number", "wor")}
-            {input("Work date", "date", "date")}
-            {input("Client name", "customer")}
-            {input("Site / location", "location")}
-            {contact("Client / worksite address", "clientAddress")}
-            {contact("Phone number", "phone", "tel")}
-            {contact("Requester name", "requesterName")}
-            {contact(
-              "Requester email for customer copy",
-              "requesterEmail",
-              "email",
-            )}
-            {contact("Scheduled date", "scheduledDate", "date")}
-          </div>
-        </section>
-        <section className="grid gap-4 rounded-xl border bg-card p-4">
-          <h3 className="font-semibold">Technicians</h3>
-          <p className="text-xs text-muted-foreground">
-            Up to six technicians. Everyone assigned can see this job in their
-            monthly history. The lead technician edits it.
-          </p>
-          {job.assignedIds.map((id, index) => (
-            <div key={index} className="flex items-end gap-2">
-              <label className="grid flex-1 gap-1 text-sm">
-                {index === 0 ? "Lead technician" : `Technician ${index + 1}`}
+        <CustomerFormPreview
+          job={job}
+          onChange={readOnly ? undefined : change}
+          toolbarClassName="top-[4.25rem]"
+        />
+        <details className="rounded-xl border bg-card p-4">
+          <summary className="min-h-11 cursor-pointer font-semibold">
+            Job settings, crew, parts & quick-entry fields
+          </summary>
+          <div className="mt-4 grid gap-4">
+            <section className="grid gap-4 rounded-xl border bg-card p-4">
+              <h3 className="font-semibold">Client and request</h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {input("Request number", "wor")}
+                {input("Work date", "date", "date")}
+                {input("Client name", "customer")}
+                {input("Site / location", "location")}
+                {contact("Client / worksite address", "clientAddress")}
+                {contact("Phone number", "phone", "tel")}
+                {contact("Requester name", "requesterName")}
+                {contact(
+                  "Requester email for customer copy",
+                  "requesterEmail",
+                  "email",
+                )}
+                {contact("Scheduled date", "scheduledDate", "date")}
+              </div>
+            </section>
+            <section className="grid gap-4 rounded-xl border bg-card p-4">
+              <h3 className="font-semibold">Technicians</h3>
+              <p className="text-xs text-muted-foreground">
+                Up to six technicians. Everyone assigned can see this job in
+                their monthly history. The lead technician edits it.
+              </p>
+              {job.assignedIds.map((id, index) => (
+                <div key={index} className="flex items-end gap-2">
+                  <label className="grid flex-1 gap-1 text-sm">
+                    {index === 0
+                      ? "Lead technician"
+                      : `Technician ${index + 1}`}
+                    <select
+                      className={control}
+                      disabled={
+                        readOnly || (index === 0 && actor.role === "tech")
+                      }
+                      value={id}
+                      onChange={(e) =>
+                        assignments(
+                          job.assignedIds.map((value, i) =>
+                            i === index ? e.target.value : value,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="">Choose</option>
+                      {users
+                        .filter(
+                          (user) =>
+                            user.id === id ||
+                            !job.assignedIds.includes(user.id),
+                        )
+                        .map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.technician}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  {index > 0 && !readOnly && (
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        assignments(
+                          job.assignedIds.filter((_, i) => i !== index),
+                        )
+                      }
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              ))}
+              {!readOnly && job.assignedIds.length < 6 && (
+                <Button
+                  variant="outline"
+                  onClick={() => assignments([...job.assignedIds, ""])}
+                >
+                  Add technician
+                </Button>
+              )}
+            </section>
+            <section className="grid gap-4 rounded-xl border bg-card p-4">
+              <h3 className="font-semibold">Work and equipment</h3>
+              {note("Description of work required", "workRequired")}
+              {note("Details of work carried out", "workCarriedOut")}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {input("Model", "modelNo")}
+                {input("Serial number", "serialNo")}
+                {input("Copy count", "copycount")}
+                {select("Service type", "serviceType", SERVICE_TYPES)}
+                {select("SLA", "slaType", SLA_TYPES)}
+                {select("Job status", "jobStatus", JOB_STATUSES)}
+              </div>
+              {note("Other work performed", "otherPerformed")}
+              {note("Other work needed", "otherNeeded")}
+            </section>
+            <section className="grid gap-4 rounded-xl border bg-card p-4">
+              <h3 className="font-semibold">Parts and billing</h3>
+              <p className="text-xs text-muted-foreground">
+                For multiple parts, use one line per part, description and
+                quantity. New part quantities start at one.
+              </p>
+              <label className="grid gap-1 text-sm">
+                Parts required
                 <select
                   className={control}
-                  disabled={readOnly || (index === 0 && actor.role === "tech")}
-                  value={id}
-                  onChange={(e) =>
-                    assignments(
-                      job.assignedIds.map((value, i) =>
-                        i === index ? e.target.value : value,
-                      ),
-                    )
-                  }
+                  value={job.line.partsRequired}
+                  disabled={readOnly}
+                  onChange={(e) => line("partsRequired", e.target.value)}
                 >
-                  <option value="">Choose</option>
-                  {users
-                    .filter(
-                      (user) =>
-                        user.id === id || !job.assignedIds.includes(user.id),
-                    )
-                    .map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.technician}
-                      </option>
-                    ))}
+                  <option>No</option>
+                  <option>Yes</option>
                 </select>
               </label>
-              {index > 0 && !readOnly && (
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    assignments(job.assignedIds.filter((_, i) => i !== index))
-                  }
-                >
-                  Remove
-                </Button>
-              )}
-            </div>
-          ))}
-          {!readOnly && job.assignedIds.length < 6 && (
-            <Button
-              variant="outline"
-              onClick={() => assignments([...job.assignedIds, ""])}
-            >
-              Add technician
-            </Button>
-          )}
-        </section>
-        <section className="grid gap-4 rounded-xl border bg-card p-4">
-          <h3 className="font-semibold">Work and equipment</h3>
-          {note("Description of work required", "workRequired")}
-          {note("Details of work carried out", "workCarriedOut")}
-          <div className="grid gap-4 sm:grid-cols-2">
-            {input("Model", "modelNo")}
-            {input("Serial number", "serialNo")}
-            {input("Copy count", "copycount")}
-            {select("Service type", "serviceType", SERVICE_TYPES)}
-            {select("SLA", "slaType", SLA_TYPES)}
-            {select("Job status", "jobStatus", JOB_STATUSES)}
-          </div>
-          {note("Other work performed", "otherPerformed")}
-          {note("Other work needed", "otherNeeded")}
-        </section>
-        <section className="grid gap-4 rounded-xl border bg-card p-4">
-          <h3 className="font-semibold">Parts and billing</h3>
-          <p className="text-xs text-muted-foreground">
-            For multiple parts, use one line per part, description and quantity.
-            New part quantities start at one.
-          </p>
-          <label className="grid gap-1 text-sm">
-            Parts required
-            <select
-              className={control}
-              value={job.line.partsRequired}
-              disabled={readOnly}
-              onChange={(e) => line("partsRequired", e.target.value)}
-            >
-              <option>No</option>
-              <option>Yes</option>
-            </select>
-          </label>
-          {job.line.partsRequired === "Yes" && (
-            <div className="grid gap-3">
-              <datalist id="field-part-catalog">
-                {catalog.map((part) => (
-                  <option key={part.partNo} value={part.partNo}>
-                    {part.description}
-                  </option>
-                ))}
-              </datalist>
-              {job.line.partNo.split(/\r?\n/).map((number, index) => {
-                const descriptions = job.line.description.split(/\r?\n/),
-                  quantities = job.line.qty.split(/\r?\n/);
-                function updatePart(
-                  field: "partNo" | "description" | "qty",
-                  value: string,
-                ) {
-                  const numbers = job.line.partNo.split(/\r?\n/),
-                    desc = [...descriptions],
-                    qty = [...quantities];
-                  while (desc.length < numbers.length) desc.push("");
-                  while (qty.length < numbers.length) qty.push("");
-                  if (field === "partNo") {
-                    numbers[index] = value;
-                    const found = catalog.find(
-                      (part) =>
-                        part.partNo.toLowerCase() ===
-                        value.trim().toLowerCase(),
+              {job.line.partsRequired === "Yes" && (
+                <div className="grid gap-3">
+                  <datalist id="field-part-catalog">
+                    {catalog.map((part) => (
+                      <option key={part.partNo} value={part.partNo}>
+                        {part.description}
+                      </option>
+                    ))}
+                  </datalist>
+                  {job.line.partNo.split(/\r?\n/).map((number, index) => {
+                    const descriptions = job.line.description.split(/\r?\n/),
+                      quantities = job.line.qty.split(/\r?\n/);
+                    function updatePart(
+                      field: "partNo" | "description" | "qty",
+                      value: string,
+                    ) {
+                      const numbers = job.line.partNo.split(/\r?\n/),
+                        desc = [...descriptions],
+                        qty = [...quantities];
+                      while (desc.length < numbers.length) desc.push("");
+                      while (qty.length < numbers.length) qty.push("");
+                      if (field === "partNo") {
+                        numbers[index] = value;
+                        const found = catalog.find(
+                          (part) =>
+                            part.partNo.toLowerCase() ===
+                            value.trim().toLowerCase(),
+                        );
+                        if (found) desc[index] = found.description;
+                        if (!qty[index]) qty[index] = "1";
+                      }
+                      if (field === "description") desc[index] = value;
+                      if (field === "qty") qty[index] = value;
+                      change({
+                        ...job,
+                        line: {
+                          ...job.line,
+                          partNo: numbers.join("\n"),
+                          description: desc.join("\n"),
+                          qty: qty.join("\n"),
+                        },
+                      });
+                    }
+                    return (
+                      <div
+                        key={index}
+                        className="grid gap-2 sm:grid-cols-[1fr_2fr_90px]"
+                      >
+                        <label className="grid gap-1 text-sm">
+                          Part number
+                          <Input
+                            list="field-part-catalog"
+                            value={number}
+                            disabled={readOnly}
+                            onChange={(e) =>
+                              updatePart("partNo", e.target.value)
+                            }
+                          />
+                        </label>
+                        <label className="grid gap-1 text-sm">
+                          Description
+                          <Input
+                            value={descriptions[index] || ""}
+                            disabled={readOnly}
+                            onChange={(e) =>
+                              updatePart("description", e.target.value)
+                            }
+                          />
+                        </label>
+                        <label className="grid gap-1 text-sm">
+                          Quantity
+                          <Input
+                            type="number"
+                            min="0"
+                            value={quantities[index] || ""}
+                            disabled={readOnly}
+                            onChange={(e) => updatePart("qty", e.target.value)}
+                          />
+                        </label>
+                      </div>
                     );
-                    if (found) desc[index] = found.description;
-                    if (!qty[index]) qty[index] = "1";
-                  }
-                  if (field === "description") desc[index] = value;
-                  if (field === "qty") qty[index] = value;
-                  change({
-                    ...job,
-                    line: {
-                      ...job.line,
-                      partNo: numbers.join("\n"),
-                      description: desc.join("\n"),
-                      qty: qty.join("\n"),
-                    },
-                  });
-                }
-                return (
-                  <div
-                    key={index}
-                    className="grid gap-2 sm:grid-cols-[1fr_2fr_90px]"
-                  >
-                    <label className="grid gap-1 text-sm">
-                      Part number
-                      <Input
-                        list="field-part-catalog"
-                        value={number}
-                        disabled={readOnly}
-                        onChange={(e) => updatePart("partNo", e.target.value)}
-                      />
-                    </label>
-                    <label className="grid gap-1 text-sm">
-                      Description
-                      <Input
-                        value={descriptions[index] || ""}
-                        disabled={readOnly}
-                        onChange={(e) =>
-                          updatePart("description", e.target.value)
-                        }
-                      />
-                    </label>
-                    <label className="grid gap-1 text-sm">
-                      Quantity
-                      <Input
-                        type="number"
-                        min="0"
-                        value={quantities[index] || ""}
-                        disabled={readOnly}
-                        onChange={(e) => updatePart("qty", e.target.value)}
-                      />
-                    </label>
-                  </div>
-                );
-              })}
-              {!readOnly && (
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    change({
-                      ...job,
-                      line: {
-                        ...job.line,
-                        partNo: job.line.partNo + "\n",
-                        description: job.line.description + "\n",
-                        qty: job.line.qty ? job.line.qty + "\n1" : "1\n1",
-                      },
-                    })
-                  }
-                >
-                  Add part line
-                </Button>
+                  })}
+                  {!readOnly && (
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        change({
+                          ...job,
+                          line: {
+                            ...job.line,
+                            partNo: job.line.partNo + "\n",
+                            description: job.line.description + "\n",
+                            qty: job.line.qty ? job.line.qty + "\n1" : "1\n1",
+                          },
+                        })
+                      }
+                    >
+                      Add part line
+                    </Button>
+                  )}
+                </div>
               )}
-            </div>
-          )}
-          <div className="grid gap-4 sm:grid-cols-2">
-            {select("Payment method", "paymentMethod", PAYMENT_METHODS)}
-            {input("Recorded revenue ($)", "revenue")}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {select("Payment method", "paymentMethod", PAYMENT_METHODS)}
+                {input("Recorded revenue ($)", "revenue")}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                No Charge prints above the request number. Tap a service option
+                on the form to circle it; only one option can be selected.
+              </p>
+              <label className="grid gap-1 text-sm">
+                Internal notes (excluded from customer copy)
+                <textarea
+                  className={control + " min-h-24"}
+                  disabled={readOnly}
+                  value={job.line.comments}
+                  onChange={(e) => line("comments", e.target.value)}
+                />
+              </label>
+            </section>
           </div>
-          <p className="text-xs text-muted-foreground">
-            No Charge prints above the request number and leaves the form’s
-            options uncircled.
-          </p>
-          <label className="grid gap-1 text-sm">
-            Internal notes (excluded from customer copy)
-            <textarea
-              className={control + " min-h-24"}
-              disabled={readOnly}
-              value={job.line.comments}
-              onChange={(e) => line("comments", e.target.value)}
-            />
-          </label>
-        </section>
+        </details>
         <section className="grid gap-4 rounded-xl border bg-card p-4">
           <h3 className="font-semibold">Completion and customer approval</h3>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -471,11 +500,6 @@ export function FieldJobEditor({
           )}
         </section>
       </div>
-      <aside
-        className={`${preview ? "block" : "hidden"} self-start xl:sticky xl:top-4 xl:block`}
-      >
-        <CustomerFormPreview job={job} />
-      </aside>
     </div>
   );
 }

@@ -169,6 +169,20 @@ async function main() {
     0,
     "Removed original owner must lose job access",
   );
+  // New devices receive short numbers, and edits do not allocate another number.
+  const shortId = randomUUID(), shortJob = emptyJob(shortId);
+  Object.assign(shortJob.line, {date:"2026-10-22",customer:"",technician:"Tech 0",additionalTechs:[]});
+  shortJob.assignedIds = [actor.id];
+  shortJob.fields.startedDate = shortJob.fields.completedDate = "2026-10-22";
+  shortJob.line.arrivalTime = "08:00";
+  const firstSync = await saveFieldJob(actor,shortId,shortJob,0,randomUUID(),false);
+  assert.match(firstSync.requestNumber!, /^WRETO-\d{5,}$/);
+  const shared = (await record<typeof shortJob>(shortId))!;
+  assert.equal(shared.data.line.wor, firstSync.requestNumber);
+  shared.data.fields.workRequired = "Changed from another device";
+  const secondSync = await saveFieldJob(adminActor,shortId,shared.data,shared.revision,randomUUID(),false);
+  assert.equal(secondSync.requestNumber, firstSync.requestNumber);
+  await assert.rejects(saveFieldJob(actor,shortId,shortJob,1,randomUUID(),false), /Conflict:/);
   await db.query("UPDATE desk_user SET status = ? WHERE id = ?", [
     "archived",
     actor.id,

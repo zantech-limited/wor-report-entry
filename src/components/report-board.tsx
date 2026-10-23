@@ -1,4 +1,5 @@
 "use client";
+import { readJsonResponse } from "@/lib/response-json";
 
 import { useMemo, useState } from "react";
 import { Label } from "@/components/ui/label";
@@ -57,7 +58,7 @@ export function ReportBoard({ entries,canExport=true }: { entries: WorkEntry[];c
       if(pdfOptions.technician)params.set("technician",pdfOptions.technician);
       if(pdfOptions.customer)params.set("customer",pdfOptions.customer);
       const response=await fetch(`/api/reports/pdf?${params}`);
-      if(!response.ok){const body=await response.json();throw new Error(body.error||"Could not export the PDF.");}
+      if(!response.ok){const body=await readJsonResponse(response);throw new Error(body.error||"Could not export the PDF.");}
       const url=URL.createObjectURL(await response.blob());const anchor=document.createElement("a");anchor.href=url;anchor.download=`Zantech-service-report-${pdfMonth}.pdf`;anchor.click();window.setTimeout(()=>URL.revokeObjectURL(url),1000);
     }catch(error){setPdfError(error instanceof Error?error.message:"Could not export the PDF.");}finally{setExporting(false);}
   }

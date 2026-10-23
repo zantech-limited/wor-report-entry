@@ -1,4 +1,5 @@
 "use client";
+import { readJsonResponse } from "@/lib/response-json";
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -26,7 +27,7 @@ export function MonthActions({
     try {
       if (beforeLeave && !(await beforeLeave())) return;
       const response = await fetch("/api/reports", { method: "POST" });
-      const body = (await response.json()) as { id?: string; error?: string };
+      const body = (await readJsonResponse(response)) as { id?: string; error?: string };
       if (!response.ok || !body.id)
         throw new Error(body.error || "Could not start a new month.");
       router.push(`/?report=${body.id}`);
@@ -57,7 +58,7 @@ export function MonthActions({
         method: "POST",
         body: data,
       });
-      const body = (await response.json()) as {
+      const body = (await readJsonResponse(response)) as {
         id?: string;
         error?: string;
         lineCount?: number;

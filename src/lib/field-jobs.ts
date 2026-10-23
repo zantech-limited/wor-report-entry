@@ -1,4 +1,9 @@
 import { createHash } from "node:crypto";
+import {
+  nextRequestNumber,
+  noteRequestNumber,
+  requestNumberTaken,
+} from "./request-number";
 import { database } from "./storage";
 import {
   records,
@@ -9,6 +14,7 @@ import {
 } from "./records";
 import {
   CONTACT_FIELDS,
+  FORM_OPTIONS,
   customerSnapshot,
   emptyFields,
   validSignature,
@@ -71,6 +77,11 @@ export function validateFieldJob(value: unknown): asserts value is FieldJob {
   const job = value as FieldJob;
   if (!job || typeof job !== "object" || !job.line || !job.fields)
     throw new Error("Invalid job.");
+  if (
+    job.fields.serviceOption !== undefined &&
+    !FORM_OPTIONS.includes(job.fields.serviceOption)
+  )
+    throw new Error("Choose one valid customer form option.");
   for (const key of Object.keys(blankLine()) as (keyof WorkOrder)[])
     if (
       typeof job.line[key] !== "string" ||
@@ -108,6 +119,8 @@ export function validateFieldJob(value: unknown): asserts value is FieldJob {
   if (
     job.fields.startedDate &&
     job.fields.completedDate &&
+    job.line.arrivalTime &&
+    job.line.departureTime &&
     `${job.fields.startedDate}T${job.line.arrivalTime}` >
       `${job.fields.completedDate}T${job.line.departureTime}`
   )
@@ -117,8 +130,7 @@ export function validateFieldJob(value: unknown): asserts value is FieldJob {
     (job.technicianSignature && !validSignature(job.technicianSignature))
   )
     throw new Error("Invalid or empty signature.");
-  if (!job.line.date || !job.line.customer.trim())
-    throw new Error("Date and customer are required before uploading.");
+  if (!job.line.date) throw new Error("Date is required before syncing.");
   if (
     job.fields.requesterEmail &&
     !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(job.fields.requesterEmail)
@@ -141,9 +153,11 @@ export async function saveFieldJob(
   await whenReady();
   const db = await database();
   return db.transaction(async () => {
-    const acknowledgement = await record<{ jobId: string; revision: number }>(
-      `operation:${operationId}`,
-    );
+    const acknowledgement = await record<{
+      jobId: string;
+      revision: number;
+      requestNumber?: string;
+    }>(`operation:${operationId}`);
     if (acknowledgement) {
       if (
         acknowledgement.ownerId !== actor.id ||
@@ -230,7 +244,19 @@ export async function saveFieldJob(
       secondaryTech: users[1]?.name || "",
       additionalTechs: users.slice(2).map((user) => user.name),
     };
-    if (!line.wor) line.wor = `ZT-${id.replace(/-/g, "").toUpperCase()}`;
+    if (!line.wor.trim()) {
+      if (submit)
+        throw new Error(
+          "Complete a draft sync before signing so the request number is included.",
+        );
+      line.wor = previous?.data.line.wor || (await nextRequestNumber());
+    } else if (line.wor !== previous?.data.line.wor) {
+      await noteRequestNumber(line.wor);
+      if (await requestNumberTaken(line.wor, id))
+        throw new Error(
+          "Conflict: that request number is already used. Clear it to assign the next number.",
+        );
+    }
     const data: FieldJob = {
       line,
       fields: input.fields,
@@ -253,12 +279,19 @@ export async function saveFieldJob(
       data.signature = undefined;
       data.state = "amended";
     }
-    if (actor.role === "admin" && previous && digest !== oldDigest) {
+    if (
+      actor.role === "admin" &&
+      previous &&
+      previous.data.state !== "draft" &&
+      digest !== oldDigest
+    ) {
       if (!input.amendmentReason?.trim() || input.amendmentReason.length > 1000)
         throw new Error("Describe the reason for this amendment.");
       data.amendmentReason = input.amendmentReason.trim();
     }
     if (submit) {
+      if (!line.customer.trim())
+        throw new Error("Complete the customer name before submitting.");
       if (
         !data.fields.startedDate ||
         !data.fields.completedDate ||
@@ -349,7 +382,6 @@ export async function saveFieldJob(
     const index = target.lines.findIndex((row) => row.id === id);
     line.no = index >= 0 ? target.lines[index].no : nextLineNo(target.lines);
     data.reportId = target.id;
-    if (!line.wor) line.wor = `ZT-${id.replace(/-/g, "").toUpperCase()}`;
     if (index >= 0) target.lines[index] = line;
     else
       target.lines = [
@@ -398,7 +430,11 @@ export async function saveFieldJob(
         state: "queued",
         attempts: 0,
       });
-    const ack = { jobId: id, revision: saved.revision };
+    const ack = {
+      jobId: id,
+      revision: saved.revision,
+      requestNumber: line.wor,
+    };
     await insertRecord("operation", actor.id, ack, `operation:${operationId}`);
     return ack;
   });

@@ -18,7 +18,9 @@ export const CONTACT_FIELDS = [
   "approvedByDesignation",
   "approvedDate",
 ] as const;
-export type ContactFields = Record<(typeof CONTACT_FIELDS)[number], string>;
+export const FORM_OPTIONS = ["Rental", "ServMaint", "Charge", "Cash", "PM"] as const;
+export type FormOption = (typeof FORM_OPTIONS)[number];
+export type ContactFields = Record<(typeof CONTACT_FIELDS)[number], string> & { serviceOption?: FormOption };
 export type FieldJob = {
   line: WorkOrder;
   fields: ContactFields;

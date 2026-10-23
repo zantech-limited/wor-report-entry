@@ -1,4 +1,5 @@
 "use client";
+import { FormLayoutEditor } from "./form-layout-editor";
 import { uploadBackupFile } from "@/lib/backup-upload-client";
 import { readJsonResponse } from "@/lib/response-json";
 import { useEffect, useRef, useState } from "react";
@@ -132,7 +133,7 @@ export function AdminPanel() {
       try {
         const response = await fetch("/api/admin", { cache: "no-store", signal: AbortSignal.timeout(3000) });
         if (response.ok) {
-          const status = await response.json();
+          const status = await readJsonResponse(response);
           if (!stopped && !status.writesPaused) window.location.reload();
         }
       } catch {
@@ -260,6 +261,7 @@ export function AdminPanel() {
         </form>
       ) : (
         <>
+          <FormLayoutEditor />
           <div className="grid gap-4 sm:grid-cols-3">
             <Metric
               label="Active storage"

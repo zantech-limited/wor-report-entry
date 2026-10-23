@@ -1,4 +1,5 @@
 "use client";
+import { readJsonResponse } from "@/lib/response-json";
 import {useEffect,useState} from 'react';
 import Link from 'next/link';
 import {Button} from './ui/button';
@@ -21,14 +22,14 @@ export function CustomersPage(){
     try{
       const [catalog,session]=await Promise.all([fetch('/api/admin/customers'),fetch('/api/admin/session')]);
       if(!catalog.ok)throw new Error('Could not load customers.');
-      setCustomers((await catalog.json()).customers);setAllowed((await session.json()).authenticated);
+      setCustomers((await readJsonResponse(catalog)).customers);setAllowed((await readJsonResponse(session)).authenticated);
     }catch(e){setError(e instanceof Error?e.message:'Could not load customers.');}finally{setReady(true);}
   })();},[]);
   async function save(body:unknown){
     setPending(true);setError('');setMessage('');
     try{
       const response=await fetch('/api/admin/customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      const data=await response.json();if(!response.ok)throw new Error(data.error);
+      const data=await readJsonResponse(response);if(!response.ok)throw new Error(data.error);
       setCustomers(data.customers);setName('');setOriginal('');setMessage('Customer dropdown updated for future work orders. Historical names are unchanged. Reload Entry to refresh autofill.');
     }catch(e){setError(e instanceof Error?e.message:'Could not save customers.');}finally{setPending(false);}
   }
