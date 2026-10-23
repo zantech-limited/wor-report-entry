@@ -27,6 +27,8 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 type Identity = { actor: Actor; database: string };
 const control = "min-h-11 rounded-lg border bg-background px-3 py-2 text-base";
+const alertMessage =
+  /fail|could not|conflict|error|invalid|offline|unavailable|sign in/i;
 export function FieldWorkspace() {
   const [identity, setIdentity] = useState<Identity>(),
     [key, setKey] = useState<CryptoKey>(),
@@ -44,10 +46,14 @@ export function FieldWorkspace() {
     [selected, setSelected] = useState<LocalDraft>(),
     [preview, setPreview] = useState<DeskRecord<FieldJob>>(),
     [localSaved, setLocalSaved] = useState(""),
-    [uploadBusy, setUploadBusy] = useState(false);
+    [uploadBusy, setUploadBusy] = useState(false),
+    [syncTick, setSyncTick] = useState(0);
   const unsaved = useRef(false);
   const uploading = useRef(false);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
   const current = useRef<LocalDraft | undefined>(undefined),
@@ -110,6 +116,7 @@ export function FieldWorkspace() {
     }, 30000);
     return () => {
       clearInterval(timer);
+      clearTimeout(retryTimer.current);
       window.removeEventListener("beforeunload", warn);
       window.removeEventListener("pointerdown", activity);
       window.removeEventListener("keydown", activity);
@@ -171,6 +178,14 @@ export function FieldWorkspace() {
     if (key && identity)
       void refresh(); /* Month changes load only that month's own jobs. */
   }, [month, key, identity, online]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!preview) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPreview(undefined);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [preview]);
   useEffect(() => {
     if (!key || !online) return;
     const timer = setInterval(() => {
@@ -402,8 +417,9 @@ export function FieldWorkspace() {
       } else await refresh();
     } catch (error) {
       const text = (error as Error).message;
+      const status = (error as { status?: number }).status;
       setMessage(text);
-      if ((error as { status?: number }).status === 409) {
+      if (status === 409) {
         const latest =
           current.current?.id === draft.id ? current.current : draft;
         const conflict = { ...latest, conflict: text };
@@ -413,7 +429,11 @@ export function FieldWorkspace() {
         }
         await vaultPut(context, key!, "draft:" + draft.id, conflict);
         setDrafts(await vaultDrafts(context, key!));
-      }
+      } else if (background && (!status || status >= 500 || status === 429)) {
+        setLocalSaved("Not synced — retrying");
+        clearTimeout(retryTimer.current);
+        retryTimer.current = setTimeout(() => setSyncTick((n) => n + 1), 8000);
+      } else setLocalSaved("Not synced — kept on this device");
     } finally {
       uploading.current = false;
       setUploadBusy(false);
@@ -431,7 +451,7 @@ export function FieldWorkspace() {
     if (!draft) return;
     syncTimer.current = setTimeout(() => void upload(draft, true), 2000);
     return () => clearTimeout(syncTimer.current);
-  }, [drafts, key, online]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [drafts, key, online, syncTick]); // eslint-disable-line react-hooks/exhaustive-deps
   async function signOut() {
     if (
       drafts.length &&
@@ -548,8 +568,8 @@ export function FieldWorkspace() {
           </h1>
           <p className="text-sm text-muted-foreground">
             {online
-              ? "Online — drafts upload only after your review"
-              : "Offline — work is saved on this device"}
+              ? "Online — unsigned drafts sync after a short pause. Signed copies wait for your review."
+              : "Offline — work stays on this device until you reconnect."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -654,7 +674,10 @@ export function FieldWorkspace() {
         ))}
       </nav>
       {message && (
-        <p role="status" className="rounded-lg border bg-card p-3 text-sm">
+        <p
+          role={alertMessage.test(message) ? "alert" : "status"}
+          className="rounded-lg border bg-card p-3 text-sm"
+        >
           {message}
         </p>
       )}
@@ -685,11 +708,46 @@ export function FieldWorkspace() {
               )}
             </div>
           </div>
-          <p className="text-sm text-muted-foreground">
-            {jobs.length} work orders in this month. Shared jobs appear for
-            every assigned technician.
+          <p className="text-sm text-muted-foreground" role="status">
+            {busy
+              ? "Loading work orders…"
+              : `${jobs.length} work orders in this month. Shared jobs appear for every assigned technician.`}
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {drafts
+              .filter(
+                (draft) =>
+                  draft.job.line.date.startsWith(month) &&
+                  !jobs.some((row) => row.id === draft.id),
+              )
+              .map((draft) => (
+                <article
+                  key={draft.id}
+                  className="grid gap-2 rounded-xl border border-dashed bg-card p-4"
+                >
+                  <p className="text-xs text-muted-foreground">
+                    {draft.job.line.date} · On this device
+                    {draft.conflict ? " · Needs review" : " · Not synced yet"}
+                  </p>
+                  <h2 className="font-semibold">
+                    {draft.job.line.customer || "New work order"}
+                  </h2>
+                  <p className="text-sm">
+                    {draft.job.line.location} ·{" "}
+                    {draft.job.line.wor || "Number assigned on sync"}
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      current.current = draft;
+                      setSelected(draft);
+                      setTab("entry");
+                    }}
+                  >
+                    Continue
+                  </Button>
+                </article>
+              ))}
             {jobs.map((row) => (
               <article
                 key={row.id}
@@ -754,17 +812,24 @@ export function FieldWorkspace() {
               </article>
             ))}
           </div>
-          {!jobs.length && (
-            <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-              No saved work orders for this month.
-            </p>
-          )}
+          {!busy &&
+            !jobs.length &&
+            !drafts.some(
+              (draft) =>
+                draft.job.line.date.startsWith(month) &&
+                !jobs.some((row) => row.id === draft.id),
+            ) && (
+              <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+                No saved work orders for this month. Start one to record a
+                visit.
+              </p>
+            )}
         </section>
       )}
       {tab === "entry" &&
         (selected ? (
           <>
-            <p role="status" className="text-sm">
+            <p role="status" aria-live="polite" className="text-sm">
               {localSaved || "Device draft"} ·{" "}
               {selected.submit
                 ? "Signed version ready; review uploads to send"
@@ -853,7 +918,12 @@ export function FieldWorkspace() {
               </div>
             </article>
           ))}
-          {!drafts.length && <p>No pending device drafts.</p>}
+          {!drafts.length && (
+            <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+              No pending device drafts. Unsigned work syncs on its own once you
+              pause and this device is online.
+            </p>
+          )}
         </section>
       )}
       {tab === "schedules" && (
@@ -868,6 +938,13 @@ export function FieldWorkspace() {
               ? "Refresh for changes."
               : "Showing the last downloaded schedule."}
           </p>
+          {!schedules.length && (
+            <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+              {online
+                ? "No visits are scheduled."
+                : "No schedule was saved on this device yet. Connect once to download it."}
+            </p>
+          )}
           {schedules.map((row) => (
             <article key={row.id} className="rounded-xl border bg-card p-4">
               <p className="text-xs text-muted-foreground">
@@ -912,6 +989,13 @@ export function FieldWorkspace() {
           <Button variant="outline" onClick={() => void refresh()}>
             Refresh alerts
           </Button>
+          {!alerts.length && (
+            <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+              {online
+                ? "No alerts."
+                : "Alerts appear after this device connects."}
+            </p>
+          )}
           {alerts.map((row) => (
             <article key={row.id} className="rounded-xl border bg-card p-4">
               <p className="text-xs text-muted-foreground">
@@ -944,9 +1028,20 @@ export function FieldWorkspace() {
           aria-modal="true"
           aria-label="Work order preview"
           className="fixed inset-0 z-50 flex justify-end bg-black/40"
+          onClick={() => setPreview(undefined)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setPreview(undefined);
+          }}
         >
-          <div className="h-full w-full max-w-3xl overflow-auto bg-background p-4">
-            <Button className="mb-4" onClick={() => setPreview(undefined)}>
+          <div
+            className="h-full w-full max-w-3xl overflow-auto bg-background p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Button
+              className="mb-4"
+              autoFocus
+              onClick={() => setPreview(undefined)}
+            >
               Close preview
             </Button>
             <CustomerFormPreview job={preview.data} />
@@ -1016,28 +1111,39 @@ function ScheduleCreator({
           />
         </label>
       ))}
-      <label className="grid gap-1 text-sm sm:col-span-2">
-        Technicians (select up to six)
-        <select
-          className={control}
-          multiple
-          value={data.assignedIds}
-          onChange={(e) =>
-            setData({
-              ...data,
-              assignedIds: [...e.target.selectedOptions]
-                .map((option) => option.value)
-                .slice(0, 6),
-            })
-          }
-        >
-          {users.map((user) => (
-            <option key={user.id} value={user.id}>
+      <fieldset className="grid gap-1 sm:col-span-2">
+        <legend className="text-sm font-medium">Technicians, up to six</legend>
+        {!users.length && (
+          <p className="text-sm text-muted-foreground">
+            No approved technicians are available yet.
+          </p>
+        )}
+        {users.map((user) => {
+          const checked = data.assignedIds.includes(user.id);
+          return (
+            <label
+              key={user.id}
+              className="flex min-h-11 items-center gap-3 text-sm"
+            >
+              <input
+                type="checkbox"
+                className="size-5"
+                checked={checked}
+                disabled={!checked && data.assignedIds.length >= 6}
+                onChange={(event) =>
+                  setData({
+                    ...data,
+                    assignedIds: event.target.checked
+                      ? [...data.assignedIds, user.id]
+                      : data.assignedIds.filter((id) => id !== user.id),
+                  })
+                }
+              />
               {user.technician}
-            </option>
-          ))}
-        </select>
-      </label>
+            </label>
+          );
+        })}
+      </fieldset>
       <label className="grid gap-1 text-sm sm:col-span-2">
         Work required
         <textarea
@@ -1074,25 +1180,34 @@ function AlertCreator({ users }: { users: TechnicianOption[] }) {
       }}
     >
       <h3 className="font-semibold">Send an alert</h3>
-      <label className="grid gap-1 text-sm">
-        Recipients
-        <select
-          className={control}
-          multiple
-          value={recipients}
-          onChange={(e) =>
-            setRecipients(
-              [...e.target.selectedOptions].map((option) => option.value),
-            )
-          }
-        >
-          {users.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.technician}
-            </option>
-          ))}
-        </select>
-      </label>
+      <fieldset className="grid gap-1">
+        <legend className="text-sm font-medium">Recipients</legend>
+        {!users.length && (
+          <p className="text-sm text-muted-foreground">
+            No approved technicians are available yet.
+          </p>
+        )}
+        {users.map((user) => (
+          <label
+            key={user.id}
+            className="flex min-h-11 items-center gap-3 text-sm"
+          >
+            <input
+              type="checkbox"
+              className="size-5"
+              checked={recipients.includes(user.id)}
+              onChange={(event) =>
+                setRecipients(
+                  event.target.checked
+                    ? [...recipients, user.id]
+                    : recipients.filter((id) => id !== user.id),
+                )
+              }
+            />
+            {user.technician}
+          </label>
+        ))}
+      </fieldset>
       <label className="grid gap-1 text-sm">
         Message
         <textarea

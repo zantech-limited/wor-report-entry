@@ -55,7 +55,7 @@ export function DeskNav({role,accounts=false}:{role?:string;accounts?:boolean}) 
                 href={link.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                  "inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                   active
                     ? "bg-primary text-primary-foreground"
                     : "text-foreground hover:bg-muted",

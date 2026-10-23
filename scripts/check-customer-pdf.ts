@@ -41,7 +41,7 @@ async function main() {
     scheduledDate: "2026-10-22",
     workRequired: "Service equipment",
     workCarriedOut:
-      "Inspected, cleaned and tested the equipment. All checks passed.",
+      "Inspected, cleaned and tested the equipment. Café check passed. 🔧",
     otherPerformed: "Cleaned rollers",
     otherNeeded: "Review at next maintenance",
     startedDate: "2026-10-22",

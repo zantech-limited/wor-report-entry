@@ -1,4 +1,8 @@
-import type { CustomerSnapshot, ContactFields } from "./field-model";
+import type {
+  CustomerSnapshot,
+  ContactFields,
+  FormOption,
+} from "./field-model";
 import type { WorkOrder } from "./model";
 import { crewNames } from "./crew";
 
@@ -394,6 +398,29 @@ export const formChoices = [
   { label: "Cash", x: 902, y: 899, w: 49 },
   { label: "PM", x: 782, y: 931, w: 33 },
 ];
+/** Circle one paper-form option and align the workbook column that option represents. */
+export function selectServiceOption<
+  T extends {
+    line: { paymentMethod: string; slaType: string; serviceType: string };
+    fields: ContactFields;
+  },
+>(job: T, option: FormOption): T {
+  const line = { ...job.line };
+  if (option === "Cash") line.paymentMethod = "Cash";
+  if (
+    option === "Charge" &&
+    ["", "no charge", "cash"].includes(line.paymentMethod.trim().toLowerCase())
+  )
+    line.paymentMethod = "";
+  if (option === "Rental") line.slaType = "Rental";
+  if (option === "ServMaint") line.slaType = "ServMaint";
+  if (option === "PM") line.serviceType = "PM";
+  return {
+    ...job,
+    line,
+    fields: { ...job.fields, serviceOption: option },
+  };
+}
 export function choiceSelected(
   job: Pick<CustomerSnapshot, "line" | "fields">,
   label: string,

@@ -59,7 +59,15 @@ export function FieldJobEditor({
     });
   }
   function line(field: keyof WorkOrder, value: string) {
-    change({ ...job, line: { ...job.line, [field]: value } });
+    const next = { ...job, line: { ...job.line, [field]: value } };
+    if (
+      field === "paymentMethod" ||
+      field === "slaType" ||
+      field === "serviceType" ||
+      field === "revenue"
+    )
+      next.fields = { ...job.fields, serviceOption: undefined };
+    change(next);
   }
   function detail(field: keyof ContactFields, value: string) {
     change({ ...job, fields: { ...job.fields, [field]: value } });
@@ -181,6 +189,7 @@ export function FieldJobEditor({
         <CustomerFormPreview
           job={job}
           onChange={readOnly ? undefined : change}
+          toolbarClassName="top-[4.25rem]"
         />
         <details className="rounded-xl border bg-card p-4">
           <summary className="min-h-11 cursor-pointer font-semibold">

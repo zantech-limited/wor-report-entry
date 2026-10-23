@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { nextRequestNumber } from "./request-number";
+import {
+  nextRequestNumber,
+  noteRequestNumber,
+  requestNumberTaken,
+} from "./request-number";
 import { database } from "./storage";
 import {
   records,
@@ -240,12 +244,18 @@ export async function saveFieldJob(
       secondaryTech: users[1]?.name || "",
       additionalTechs: users.slice(2).map((user) => user.name),
     };
-    if (!line.wor) {
+    if (!line.wor.trim()) {
       if (submit)
         throw new Error(
           "Complete a draft sync before signing so the request number is included.",
         );
       line.wor = previous?.data.line.wor || (await nextRequestNumber());
+    } else if (line.wor !== previous?.data.line.wor) {
+      await noteRequestNumber(line.wor);
+      if (await requestNumberTaken(line.wor, id))
+        throw new Error(
+          "Conflict: that request number is already used. Clear it to assign the next number.",
+        );
     }
     const data: FieldJob = {
       line,

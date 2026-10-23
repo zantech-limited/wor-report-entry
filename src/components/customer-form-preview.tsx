@@ -14,6 +14,7 @@ import {
   formValue,
   formChoices,
   choiceSelected,
+  selectServiceOption,
   type FormField,
   type FormLayout,
   type FieldBox,
@@ -65,6 +66,7 @@ export function CustomerFormPreview({
   selectedField,
   onSelectField,
   onLayoutChange,
+  toolbarClassName = "top-0",
 }: {
   job: FieldJob;
   onChange?: (job: FieldJob) => void;
@@ -72,6 +74,7 @@ export function CustomerFormPreview({
   selectedField?: string;
   onSelectField?: (label: string) => void;
   onLayoutChange?: (label: string, box: FieldBox) => void;
+  toolbarClassName?: string;
 }) {
   const publishedLayout = useFormLayout(!layout);
   const fields = fieldsForLayout(layout || publishedLayout);
@@ -133,7 +136,7 @@ export function CustomerFormPreview({
   }
   return (
     <section className="min-w-0">
-      <div className="sticky top-0 z-20 flex items-center justify-between gap-3 rounded-t-xl border bg-background/95 px-4 py-3 backdrop-blur">
+      <div className={`sticky ${toolbarClassName} z-20 flex items-center justify-between gap-3 rounded-t-xl border bg-background/95 px-4 py-3 backdrop-blur`}>
         <div>
           <h2 className="font-semibold">Customer work order</h2>
           <p className="text-xs text-muted-foreground">
@@ -147,6 +150,7 @@ export function CustomerFormPreview({
         <button
           type="button"
           className="min-h-11 rounded-lg border px-4 text-sm"
+          aria-pressed={zoom}
           onClick={() => setZoom(!zoom)}
         >
           {zoom ? "Fit page" : "Zoom in"}
@@ -232,7 +236,7 @@ export function CustomerFormPreview({
               </button>
             ) : (
               <div key={index} style={style}>
-                {value || (field.key === "wor" ? "On sync" : "")}
+                {value || (field.key === "wor" ? "Syncs shortly" : "")}
               </div>
             );
           })}
@@ -256,13 +260,7 @@ export function CustomerFormPreview({
                   style={position(choice.x - 4, choice.y - 3, choice.w + 8, 28)}
                   className={`rounded-[50%] border-2 focus-visible:outline-2 focus-visible:outline-blue-600 ${checked ? "border-red-600" : "border-transparent hover:border-red-300"}`}
                   onClick={() =>
-                    onChange({
-                      ...job,
-                      fields: {
-                        ...job.fields,
-                        serviceOption: choice.label as FormOption,
-                      },
-                    })
+                    onChange(selectServiceOption(job, choice.label as FormOption))
                   }
                   onKeyDown={(event) => {
                     if (
@@ -280,13 +278,7 @@ export function CustomerFormPreview({
                             ? 1
                             : 4)) %
                         5;
-                      onChange({
-                        ...job,
-                        fields: {
-                          ...job.fields,
-                          serviceOption: FORM_OPTIONS[next],
-                        },
-                      });
+                      onChange(selectServiceOption(job, FORM_OPTIONS[next]));
                       (
                         event.currentTarget.parentElement?.children[
                           next

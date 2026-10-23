@@ -40,6 +40,18 @@ export async function customerPdf(
     height: 43 * scale,
     color: rgb(1, 1, 1),
   });
+  function printable(face: typeof font, value: string) {
+    let text = "";
+    for (const char of value) {
+      try {
+        face.encodeText(char);
+        text += char;
+      } catch {
+        text += " ";
+      }
+    }
+    return text;
+  }
   function draw(
     p: PDFPage,
     text: string,
@@ -49,17 +61,21 @@ export async function customerPdf(
     strong = false,
     red = false,
   ) {
-    p.drawText(text, {
+    const face = strong ? bold : font;
+    const safe = printable(face, text);
+    if (!safe.trim()) return;
+    p.drawText(safe, {
       x: x * scale,
       y: p.getHeight() - y * scale,
       size: size * scale,
-      font: strong ? bold : font,
+      font: face,
       color: red ? rgb(0.86, 0.15, 0.15) : rgb(0.08, 0.08, 0.08),
     });
   }
   function wrap(value: string, width: number, size: number, strong = false) {
+    const face = strong ? bold : font;
     const rows: string[] = [];
-    for (const paragraph of value
+    for (const paragraph of printable(face, value)
       .replace(/[\u0000-\u0008\u000b-\u001f]/g, "")
       .split(/\r?\n/)) {
       let row = "";
