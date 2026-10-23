@@ -29,6 +29,21 @@ type Identity = { actor: Actor; database: string };
 const control = "min-h-11 rounded-lg border bg-background px-3 py-2 text-base";
 const alertMessage =
   /fail|could not|conflict|error|invalid|offline|unavailable|sign in/i;
+function deviceLabel() {
+  const stored = localStorage.getItem("zantech-device-label");
+  if (stored) return stored;
+  const mobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  const label = `${mobile ? "phone" : "computer"} ${crypto.randomUUID().slice(0, 4)}`;
+  localStorage.setItem("zantech-device-label", label);
+  return label;
+}
+function savedLabel(savedOn?: string, savedAt?: string) {
+  const when = savedAt ? new Date(savedAt).toLocaleString() : "";
+  if (!savedOn && !when) return "Saved on the server";
+  return [savedOn ? `Saved on ${savedOn}` : "Saved", when]
+    .filter(Boolean)
+    .join(" · ");
+}
 export function FieldWorkspace() {
   const [identity, setIdentity] = useState<Identity>(),
     [key, setKey] = useState<CryptoKey>(),
@@ -179,6 +194,34 @@ export function FieldWorkspace() {
       void refresh(); /* Month changes load only that month's own jobs. */
   }, [month, key, identity, online]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
+    if (!identity || !online || key) return;
+    let cancel = false;
+    setBusy(true);
+    void Promise.all([
+      deskApi<{ jobs: DeskRecord<FieldJob>[] }>(`/api/field/jobs?month=${month}`),
+      deskApi<{ users: TechnicianOption[] }>("/api/field/directory"),
+    ])
+      .then(([jobData, directory]) => {
+        if (cancel) return;
+        setJobs(jobData.jobs);
+        setUsers(directory.users);
+      })
+      .catch((error) => {
+        if (!cancel)
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not load shared drafts.",
+          );
+      })
+      .finally(() => {
+        if (!cancel) setBusy(false);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [identity, online, key, month]);
+  useEffect(() => {
     if (!preview) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") setPreview(undefined);
@@ -214,13 +257,25 @@ export function FieldWorkspace() {
     unsaved.current = true;
     current.current = draft;
     setSelected(draft);
+    const stamped: LocalDraft = {
+      ...draft,
+      job: {
+        ...draft.job,
+        savedOn: deviceLabel(),
+        savedAt: new Date().toISOString(),
+      },
+    };
     setLocalSaved("Saving on this device…");
     try {
-      await vaultPut(context, key!, "draft:" + draft.id, draft);
+      await vaultPut(context, key!, "draft:" + stamped.id, stamped);
+      if (current.current?.operationId === stamped.operationId) {
+        current.current = stamped;
+        setSelected(stamped);
+      }
       setDrafts(await vaultDrafts(context, key!));
-      if (current.current?.operationId === draft.operationId)
+      if (current.current?.operationId === stamped.operationId)
         unsaved.current = false;
-      setLocalSaved("Saved on this device");
+      setLocalSaved(`Saved on ${stamped.job.savedOn}`);
     } catch {
       setLocalSaved("DEVICE SAVE FAILED — keep this screen open");
       setMessage(
@@ -302,6 +357,7 @@ export function FieldWorkspace() {
       const response = await deskApi<{
         revision: number;
         requestNumber?: string;
+        mail?: { state: string; error?: string };
       }>("/api/field/jobs", {
         id: draft.id,
         job: draft.job,
@@ -403,10 +459,17 @@ export function FieldWorkspace() {
           ? "New changes saved on this device — sync pending"
           : "Synced — available on your other devices",
       );
-      if (!background)
-        setMessage(
-          `Uploaded revision ${response.revision}.${draft.submit ? " Customer copy queued; check delivery status below." : ""}`,
-        );
+      if (!background) {
+        const delivery = response.mail;
+        const mailNote = !draft.submit
+          ? ""
+          : delivery?.state === "sent"
+            ? " Customer email sent."
+            : delivery?.error
+              ? ` Customer email was not sent: ${delivery.error}`
+              : " Customer email is queued for the next delivery attempt.";
+        setMessage(`Uploaded revision ${response.revision}.${mailNote}`);
+      }
       if (background) {
         setDrafts(await vaultDrafts(context, key!));
         if (draft.job.line.date.startsWith(month))
@@ -472,7 +535,7 @@ export function FieldWorkspace() {
   async function resolveConflict(
     draft: LocalDraft,
     server: DeskRecord<FieldJob>,
-    useLocal: boolean,
+    choice: "local" | "server" | "both",
   ) {
     await vaultPut(
       context,
@@ -480,7 +543,25 @@ export function FieldWorkspace() {
       "archive:" + draft.id + ":" + crypto.randomUUID(),
       draft,
     );
-    const job = useLocal
+    if (choice === "both") {
+      const copyId = crypto.randomUUID();
+      await persist({
+        id: copyId,
+        job: {
+          ...draft.job,
+          reportId: "",
+          signature: undefined,
+          signedHash: undefined,
+          signedRevisionId: undefined,
+          line: { ...draft.job.line, id: copyId, wor: "" },
+        },
+        revision: 0,
+        operationId: crypto.randomUUID(),
+        submit: false,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    const job = choice === "local"
       ? {
           ...draft.job,
           assignedIds: server.data.assignedIds,
@@ -520,7 +601,7 @@ export function FieldWorkspace() {
         {message && <p role="status">{message}</p>}
       </section>
     );
-  if (!key)
+  if (!key && !online)
     return (
       <section className="mx-auto my-8 grid max-w-md gap-4 rounded-2xl border bg-card p-6">
         <h1 className="text-2xl font-semibold">Unlock this device’s drafts</h1>
@@ -554,6 +635,61 @@ export function FieldWorkspace() {
             {message}
           </p>
         )}
+      </section>
+    );
+  if (!key)
+    return (
+      <section className="mx-auto my-8 grid max-w-3xl gap-4 px-4">
+        <div className="grid gap-4 rounded-2xl border bg-card p-6">
+          <h1 className="text-2xl font-semibold">Shared drafts</h1>
+          <p className="text-sm text-muted-foreground">
+            {identity.actor.name} is signed in. Drafts saved from your other
+            devices are listed here. Unlock this device to edit them or start
+            a new one while offline.
+          </p>
+          <label className="grid gap-2 text-sm">
+            Device passphrase
+            <Input
+              type="password"
+              minLength={6}
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void unlock();
+              }}
+              autoComplete="off"
+            />
+          </label>
+          <Button onClick={() => void unlock()} disabled={busy || pin.length < 6}>
+            {busy ? "Unlocking…" : "Unlock / prepare device"}
+          </Button>
+          {message && (
+            <p role="status" className="text-sm">
+              {message}
+            </p>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground" role="status">
+          {busy
+            ? "Loading shared drafts…"
+            : `${jobs.length} work orders in this month.`}
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {jobs.map((row) => (
+            <article key={row.id} className="grid gap-2 rounded-xl border bg-card p-4">
+              <p className="text-xs text-muted-foreground">
+                {row.data.line.date} · {row.data.state} ·{" "}
+                {savedLabel(row.data.savedOn, row.data.savedAt)}
+              </p>
+              <h2 className="font-semibold">
+                {row.data.line.customer || "Work order"}
+              </h2>
+              <p className="text-sm">
+                {row.data.line.location} · {row.data.line.wor || "Draft"}
+              </p>
+            </article>
+          ))}
+        </div>
       </section>
     );
   return (
@@ -754,7 +890,8 @@ export function FieldWorkspace() {
                 className="grid gap-2 rounded-xl border bg-card p-4"
               >
                 <p className="text-xs text-muted-foreground">
-                  {row.data.line.date} · {row.data.state}
+                  {row.data.line.date} · {row.data.state} ·{" "}
+                  {savedLabel(row.data.savedOn, row.data.savedAt)}
                 </p>
                 <h2 className="font-semibold">{row.data.line.customer}</h2>
                 <p className="text-sm">
@@ -893,8 +1030,8 @@ export function FieldWorkspace() {
               {draft.conflict && (
                 <DraftConflict
                   draft={draft}
-                  onResolve={(server, useLocal) =>
-                    void resolveConflict(draft, server, useLocal)
+                  onResolve={(server, choice) =>
+                    void resolveConflict(draft, server, choice)
                   }
                 />
               )}

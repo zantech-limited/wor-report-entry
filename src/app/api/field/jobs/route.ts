@@ -1,6 +1,6 @@
 import { actorFor, jsonBody, errorResponse, HttpError } from "@/lib/http";
-import { after } from "next/server";
 import { processMailQueue } from "@/lib/mail-queue";
+import { records } from "@/lib/records";
 import { visibleJobs, saveFieldJob } from "@/lib/field-jobs";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
@@ -33,14 +33,29 @@ export async function POST(request: Request) {
       body.operationId,
       body.submit === true,
     );
+    let mail: { state: string; error?: string } | undefined;
     if (body.submit === true) {
       try {
-        after(async () => { try { await processMailQueue(1); } catch { /* Queue remains retryable. */ } });
-      } catch {
-        /* The job is already durable; Admin can retry the queue. */
+        await processMailQueue(1);
+        const queued = (await records<{
+          jobId?: string;
+          state?: string;
+          lastError?: string;
+        }>("customer-mail")).find((row) => row.data.jobId === body.id);
+        mail = queued
+          ? { state: String(queued.data.state || "queued"), error: queued.data.lastError }
+          : { state: "queued" };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        mail = {
+          state: "failed",
+          error: /^SMTP is not configured\./.test(message)
+            ? message
+            : "Customer email could not be sent. Check SMTP settings in Team & SMTP.",
+        };
       }
     }
-    return Response.json(result);
+    return Response.json({ ...result, mail });
   } catch (error) {
     return errorResponse(error);
   }

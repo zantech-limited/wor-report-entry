@@ -33,6 +33,8 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const commit = (process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 7);
+  const revision = `v${packageInfo.version}${commit ? ` · ${commit}` : ""}`;
   const requestHeaders=await headers();
   const pathname=requestHeaders.get("x-desk-path")||"/";
   let actor;
@@ -76,7 +78,8 @@ export default async function RootLayout({
             <span className="fixed bottom-3 left-4 z-30 rounded-md border border-red-300 bg-red-50 px-3 py-1.5 font-semibold text-red-700 shadow-sm">
               Internal use only
             </span>
-            <p>© {new Date().getFullYear()} Zantech Limited · v{packageInfo.version}</p>
+            <p>© {new Date().getFullYear()} Zantech Limited · {revision}</p>
+            <meta name="desk-revision" content={revision} />
           </footer>
         </Providers>
       </body>
