@@ -37,6 +37,14 @@ export async function jsonBody(request: Request, max = 500000) {
     throw new HttpError("Invalid JSON request.");
   }
 }
+const publicError =
+  /^(Conflict:|Choose |Enter |Date |Invalid |Work order|Work orders |Only |Your |You |An assigned|Each assigned|Customer-visible|The signed|Complete |Submitted |Ask Admin|Describe |That schedule|Include |Changing the month|Completion |SMTP |Use SMTP|This workbook|The workbook package|Template |Master sheet|Workbook is missing cell|Copycount|Unsupported backup|This backup|Storage migration|Save conflict:|Recovery snapshot|That report|Report exceeds|customer must|location must|technician must|secondaryTech must|No work orders|Vercel requires|Configure AUTH_SECRET|Configure APP_URL)/;
+
+export function clientErrorMessage(error: unknown, fallback: string) {
+  const text = error instanceof Error ? error.message : "";
+  return publicError.test(text) ? text : fallback;
+}
+
 export function errorResponse(error: unknown) {
   if (error instanceof HttpError)
     return Response.json({ error: error.message }, { status: error.status });

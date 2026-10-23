@@ -668,7 +668,7 @@ function replaceValidations(xml: string, block: string): string {
 
 async function mustText(zip: JSZip, path: string): Promise<string> {
   const file = zip.file(path);
-  if (!file) throw new Error(`Workbook is missing ${path}.`);
+  if (!file) throw new Error("This workbook is missing a required package file.");
   return file.async("string");
 }
 

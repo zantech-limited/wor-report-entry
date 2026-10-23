@@ -22,7 +22,12 @@ export async function GET(request: Request) {
     [reportId],
   );
   const matches = rows.flatMap((row) => {
-    const lines = JSON.parse(String(row.lines)) as WorkOrder[];
+    let lines: WorkOrder[];
+    try {
+      lines = JSON.parse(String(row.lines)) as WorkOrder[];
+    } catch {
+      return [];
+    }
     const workbook =
       row.source_filename ||
       `Monthly Service Report ${row.prepared_by || "Service desk"} ${fileMonthStamp(lines)}.xlsm`;

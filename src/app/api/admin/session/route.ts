@@ -30,7 +30,18 @@ export async function POST(request: Request) {
       { error: "Too many attempts. Wait one minute." },
       { status: 429 },
     );
-  const body = await request.json().catch(() => ({}));
+  if (Number(request.headers.get("content-length") || 0) > 4096)
+    return NextResponse.json({ error: "Request is too large." }, { status: 413 });
+  const text = await request.text();
+  if (text.length > 4096)
+    return NextResponse.json({ error: "Request is too large." }, { status: 413 });
+  let body: { token?: unknown };
+  try {
+    const parsed = text ? JSON.parse(text) : {};
+    body = parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  }
   if (typeof body.token !== "string" || !verifyToken(body.token)) {
     logEvent("admin.login", "Administrator token rejected.", "error");
     return NextResponse.json(
@@ -38,11 +49,14 @@ export async function POST(request: Request) {
       { status: 401 },
     );
   }
+  const forwarded = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
   const response = NextResponse.json({ authenticated: true });
   response.cookies.set(adminCookie, createSession(), {
     httpOnly: true,
     sameSite: "strict",
-    secure: new URL(request.url).protocol === "https:",
+    secure: forwarded
+      ? forwarded === "https"
+      : new URL(request.url).protocol === "https:",
     path: "/",
     maxAge: 8 * 60 * 60,
   });

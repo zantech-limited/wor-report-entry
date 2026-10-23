@@ -5,6 +5,7 @@ import {reportBounds} from "@/lib/monthly-report";
 import {createMonthlyPdf} from "@/lib/report-pdf";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
+export const maxDuration = 60;
 export async function GET(request:Request){
   const accessDenied=await legacyAccess(request,["admin","manager"]);if(accessDenied)return accessDenied;
   const query=new URL(request.url).searchParams;
