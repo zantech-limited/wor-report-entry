@@ -95,6 +95,12 @@ export async function processMailQueue(limit = 2) {
         error && typeof error === "object" && "code" in error
           ? String(error.code)
           : "";
+      const raw = error instanceof Error ? error.message : "";
+      const safeError = /^(SMTP is not configured\.|Invalid recipient email\.|The frozen customer copy is unavailable\.)$/.test(
+        raw,
+      )
+        ? raw
+        : "Delivery did not complete. Check SMTP settings and provider delivery history before retrying.";
       const safeRetry = ["EAUTH", "ECONNECTION", "EDNS", "ETLS"].includes(code);
       await db.transaction(async () => {
         const row = await record<Delivery>(claimed.id, true);
@@ -108,11 +114,10 @@ export async function processMailQueue(limit = 2) {
                   ? "uncertain"
                   : "failed",
             leaseUntil: undefined,
-            lastError:
-              "Delivery did not complete. Check SMTP settings and provider delivery history before retrying.",
+            lastError: safeError,
           });
       });
-      results.push({ id: claimed.id, state: "failed" });
+      results.push({ id: claimed.id, state: "failed", error: safeError });
     }
   }
   return results;

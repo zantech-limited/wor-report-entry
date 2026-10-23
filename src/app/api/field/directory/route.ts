@@ -1,15 +1,12 @@
 import { actorFor, errorResponse } from "@/lib/http";
 import { database } from "@/lib/storage";
+import { linkedTechnicianIdentities } from "@/lib/technician-identity";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     await actorFor(request);
-    const db = await database();
-    const column =
-      db.config.engine === "mysql" ? "`technicianName`" : '"technicianName"';
-    const users = await db.query(
-      `SELECT id, name, ${column} AS technician FROM desk_user WHERE status = ? AND ${column} <> ? ORDER BY ${column}`,
-      ["active", ""],
+    const users = (await linkedTechnicianIdentities(await database())).sort((a, b) =>
+      a.technician.localeCompare(b.technician),
     );
     return Response.json(
       { users },

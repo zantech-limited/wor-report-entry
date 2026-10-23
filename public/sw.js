@@ -1,4 +1,4 @@
-const CACHE = "zantech-shell-v052";
+const CACHE = "zantech-shell-v053";
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
