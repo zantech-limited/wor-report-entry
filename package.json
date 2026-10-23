@@ -14,7 +14,8 @@
     "check:workbook": "tsx scripts/check-roundtrip.ts",
     "check:template": "tsx scripts/check-template-integrity.ts",
     "check:storage": "tsx scripts/check-storage.ts",
-    "check:reporting": "tsx scripts/check-reporting.ts"
+    "check:reporting": "tsx scripts/check-reporting.ts",
+    "check:diagnostics": "tsx scripts/check-diagnostics.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
