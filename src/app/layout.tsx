@@ -36,7 +36,8 @@ export default async function RootLayout({
   const pathname=requestHeaders.get("x-desk-path")||"/";
   let actor;
   let unavailable = false;
-  if(accountsEnabled()&&!["/login","/setup","/offline"].includes(pathname)){
+  const skipAccountGate=["/login","/setup","/offline","/diagnostics"].includes(pathname);
+  if(accountsEnabled()&&!skipAccountGate){
     try { actor=await currentActor(new Headers(requestHeaders)); } catch { unavailable=true; console.error("Service desk layout: database or account configuration unavailable"); }
     if(!actor && !unavailable)redirect("/login");
     if(actor?.role==="tech"&&!pathname.startsWith("/field"))redirect("/field");
@@ -57,7 +58,7 @@ export default async function RootLayout({
           <DeskNav role={actor?.role} accounts={accountsEnabled()} />
           <PwaSetup/>
           <main id="main-content" className="min-h-[calc(100vh-12rem)] pb-20">
-            {unavailable ? <section className="mx-auto grid max-w-lg gap-4 px-4 py-12"><h1 className="text-2xl font-semibold">The shared desk is temporarily unavailable</h1><p>Ask Admin to check the database connection and deployment settings. On Vercel, configure PostgreSQL, Supabase or MySQL; SQLite is supported on a persistent local server.</p><p>Your saved device drafts remain available.</p><a className="rounded-lg border p-3" href="/offline">Open device drafts</a><a className="underline" href={pathname}>Try again</a></section> : children}
+            {unavailable ? <section className="mx-auto grid max-w-lg gap-4 px-4 py-12"><h1 className="text-2xl font-semibold">The shared desk is temporarily unavailable</h1><p>Ask Admin to check the database connection and deployment settings. On Vercel, configure PostgreSQL, Supabase or MySQL; SQLite is supported on a persistent local server.</p><p>Your saved device drafts remain available.</p><a className="rounded-lg border p-3" href="/offline">Open device drafts</a><a className="rounded-lg border p-3" href="/diagnostics">Admin connection diagnostics</a><p className="text-sm text-muted-foreground">Connection diagnostics does not use a database sign-in. An admin unlocks it with the ADMIN_TOKEN configured for this deployment.</p><a className="underline" href={pathname}>Try again</a></section> : children}
           </main>
           <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-end gap-3 border-t px-4 py-5 text-xs text-muted-foreground sm:px-6">
             <span className="fixed bottom-3 left-4 z-30 rounded-md border border-red-300 bg-red-50 px-3 py-1.5 font-semibold text-red-700 shadow-sm">

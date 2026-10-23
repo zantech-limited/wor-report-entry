@@ -15,6 +15,7 @@ export default function Error({
       <p className="text-sm text-muted-foreground">The server could not load this page. Retry, or ask Admin to check the shared database connection. Saved device drafts are retained.</p>
       {error.digest && <p className="text-xs text-muted-foreground">Support reference: {error.digest}</p>}
       <a href="/offline" className="text-sm underline">Open device drafts</a>
+      <a href="/diagnostics" className="text-sm underline">Admin connection diagnostics</a>
       <Button type="button" className="w-fit" onClick={reset}>
         Try again
       </Button>
