@@ -15,6 +15,7 @@ import {
 import {
   CONTACT_FIELDS,
   FORM_OPTIONS,
+  canonicalSnapshot,
   customerSnapshot,
   emptyFields,
   validSignature,
@@ -39,13 +40,29 @@ import { crewIncludes, crewNames } from "./crew";
 import { linkedTechnicianIdentities } from "./technician-identity";
 import { withFieldProjection } from "./field-projection-context";
 
+export function seesAllWorkOrders(role: string) {
+  return role === "admin" || role === "manager" || role === "supervisor";
+}
 export function canSeeJob(actor: Actor, row: DeskRecord<FieldJob>) {
-  return actor.role !== "tech" || row.data.assignedIds.includes(actor.id);
+  return (
+    seesAllWorkOrders(actor.role) || row.data.assignedIds.includes(actor.id)
+  );
 }
 export function hashSnapshot(job: FieldJob) {
   return createHash("sha256")
+    .update(JSON.stringify(canonicalSnapshot(job)))
+    .digest("hex");
+}
+/** Hash used by clients that signed before the canonical snapshot. */
+export function legacyHashSnapshot(job: FieldJob) {
+  return createHash("sha256")
     .update(JSON.stringify(customerSnapshot(job)))
     .digest("hex");
+}
+export function signedContentMatches(hash: string | undefined, job: FieldJob) {
+  return (
+    !!hash && (hash === hashSnapshot(job) || hash === legacyHashSnapshot(job))
+  );
 }
 export async function assignedUsers(ids: string[]) {
   if (
@@ -277,14 +294,21 @@ export async function saveFieldJob(
       await updateRecord(schedule, { ...schedule.data, jobId: id });
     }
     const printedName = input.fields.completedByName.trim();
+    // A signed upload must keep the crew the customer reviewed. Directory names
+    // fill blanks only on an unsigned draft, before anyone signs that version.
     const line: WorkOrder = {
       ...blankLine(),
       ...input.line,
       id,
-      technician:
-        printedName || input.line.technician.trim() || users[0].name,
-      secondaryTech: users[1]?.name || "",
-      additionalTechs: users.slice(2).map((user) => user.name),
+      technician: submit
+        ? input.line.technician
+        : printedName || input.line.technician.trim() || users[0].name,
+      secondaryTech: submit
+        ? input.line.secondaryTech
+        : users[1]?.name || "",
+      additionalTechs: submit
+        ? input.line.additionalTechs
+        : users.slice(2).map((user) => user.name),
     };
     if (!line.wor.trim()) {
       if (submit)
@@ -316,7 +340,9 @@ export async function saveFieldJob(
     };
     const digest = hashSnapshot(data);
     const changedAfterSigning =
-      !!previous?.data.signedHash && digest !== previous.data.signedHash;
+      !!previous?.data.signedHash &&
+      JSON.stringify(canonicalSnapshot(data)) !==
+        JSON.stringify(canonicalSnapshot(previous.data));
     const freshSignature =
       !!data.signature &&
       JSON.stringify(data.signature) !==
@@ -353,7 +379,13 @@ export async function saveFieldJob(
         throw new Error(
           "Complete the work details, names, customer signature, approval date and customer email before submitting.",
         );
-      if (input.signedHash !== digest)
+      const sameAsSigned =
+        JSON.stringify(canonicalSnapshot(data)) ===
+        JSON.stringify(canonicalSnapshot(input));
+      if (
+        !signedContentMatches(input.signedHash, data) &&
+        !(sameAsSigned && signedContentMatches(input.signedHash, input))
+      )
         throw new Error(
           "The signed preview changed. Review and sign this version again.",
         );
@@ -511,7 +543,8 @@ export async function visibleJobs(actor: Actor, month: string) {
       if (
         known.has(line.id) ||
         !line.date.startsWith(month) ||
-        (actor.role === "tech" && !crewIncludes(line, actor.technicianName))
+        (!seesAllWorkOrders(actor.role) &&
+          !crewIncludes(line, actor.technicianName))
       )
         continue;
       const ids = crewNames(line)

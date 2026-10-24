@@ -122,6 +122,58 @@ export function customerSnapshot(job: FieldJob) {
   };
 }
 export type CustomerSnapshot = ReturnType<typeof customerSnapshot>;
+
+const SIGNED_LINE_KEYS = [
+  "id",
+  "wor",
+  "date",
+  "customer",
+  "location",
+  "serviceType",
+  "slaType",
+  "modelNo",
+  "serialNo",
+  "copycount",
+  "technician",
+  "secondaryTech",
+  "arrivalTime",
+  "departureTime",
+  "partsRequired",
+  "partNo",
+  "description",
+  "qty",
+  "paymentMethod",
+  "revenue",
+  "jobStatus",
+] as const;
+
+function signedText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * Customer-visible content in a fixed shape. Timestamps, device labels, internal
+ * notes, request-line numbers, and key order are not part of the signed preview.
+ * A missing crew list and an empty one are the same content.
+ */
+export function canonicalSnapshot(job: FieldJob) {
+  const line: Record<string, string | string[]> = {};
+  for (const key of SIGNED_LINE_KEYS) line[key] = signedText(job.line?.[key]);
+  const extra = job.line?.additionalTechs;
+  line.additionalTechs = Array.isArray(extra)
+    ? extra.map((name) => signedText(name)).filter(Boolean)
+    : [];
+  const fields: Record<string, string> = {};
+  for (const key of CONTACT_FIELDS) fields[key] = signedText(job.fields?.[key]);
+  if (job.fields?.serviceOption && FORM_OPTIONS.includes(job.fields.serviceOption))
+    fields.serviceOption = job.fields.serviceOption;
+  return {
+    line,
+    fields,
+    signature: job.signature ?? null,
+    technicianSignature: job.technicianSignature ?? null,
+  };
+}
 export type Schedule = {
   assignedIds: string[];
   customer: string;

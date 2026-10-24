@@ -2,7 +2,8 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { deskApi } from "@/lib/client-api";
-import type { DiagnosticsPayload, EnvStatus } from "@/lib/diagnostics-types";
+import type { DebugDesk, DiagnosticsPayload, EnvStatus } from "@/lib/diagnostics-types";
+import { DebugReportView } from "./desk-debug-panel";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 
@@ -14,6 +15,7 @@ function statusClass(status: EnvStatus) {
 export function DiagnosticsPanel() {
   const [token, setToken] = useState("");
   const [report, setReport] = useState<DiagnosticsPayload["report"]>();
+  const [debug, setDebug] = useState<DebugDesk>();
   const [probe, setProbe] = useState<DiagnosticsPayload["probe"]>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -25,6 +27,7 @@ export function DiagnosticsPanel() {
       .then((data) => {
         if (cancel) return;
         if (data.report) setReport(data.report);
+        if (data.debug) setDebug(data.debug);
       })
       .catch((reason: unknown) => {
         if (!cancel)
@@ -49,6 +52,7 @@ export function DiagnosticsPanel() {
       });
       setToken("");
       setReport(data.report);
+      setDebug(data.debug);
       setProbe(undefined);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The token could not be checked.");
@@ -63,6 +67,7 @@ export function DiagnosticsPanel() {
     try {
       const data = await deskApi<DiagnosticsPayload>("/api/diagnostics", { action: "test" });
       setReport(data.report);
+      setDebug(data.debug);
       setProbe(data.probe);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The connection test failed.");
@@ -77,6 +82,7 @@ export function DiagnosticsPanel() {
     try {
       await deskApi("/api/diagnostics", { action: "lock" });
       setReport(undefined);
+      setDebug(undefined);
       setProbe(undefined);
       setToken("");
     } catch (reason) {
@@ -216,6 +222,12 @@ export function DiagnosticsPanel() {
               ))}
             </ul>
           </div>
+          {debug ? (
+            <div className="grid gap-2">
+              <h2 className="font-semibold">Debugging</h2>
+              <DebugReportView debug={debug} />
+            </div>
+          ) : null}
           <div className="grid gap-2">
             <h2 className="font-semibold">Runtime</h2>
             <dl className="grid gap-2 rounded-lg border p-4 text-sm sm:grid-cols-2">

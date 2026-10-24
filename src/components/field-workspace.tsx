@@ -24,6 +24,7 @@ import { FieldJobEditor, type TechnicianOption } from "./field-job-editor";
 import { CustomerFormPreview } from "./customer-form-preview";
 import { DraftConflict } from "./draft-conflict";
 import { FieldTeam } from "./field-team";
+import { DeskDebugPanel } from "./desk-debug-panel";
 import { onDraftFlush } from "@/lib/app-update";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -395,16 +396,7 @@ export function FieldWorkspace() {
         setMessage("Describe the reason for this amendment.");
       return;
     }
-    const job =
-      !draft.job.line.technician.trim() && draft.job.fields.completedByName.trim()
-        ? {
-            ...draft.job,
-            line: {
-              ...draft.job.line,
-              technician: draft.job.fields.completedByName,
-            },
-          }
-        : draft.job;
+    const job = draft.job;
     if (uploading.current || !key) return;
     uploading.current = true;
     if (!navigator.onLine) {
@@ -543,7 +535,12 @@ export function FieldWorkspace() {
     } catch (error) {
       const text = (error as Error).message;
       const status = (error as { status?: number }).status;
-      setMessage(text);
+      const reference = (error as { reference?: string }).reference;
+      setMessage(
+        reference && /^[a-f0-9]{8}$/.test(reference)
+          ? `${text} Support reference: ${reference}.`
+          : text,
+      );
       if (status === 409) {
         const latest =
           current.current?.id === draft.id ? current.current : draft;
@@ -855,12 +852,17 @@ export function FieldWorkspace() {
         aria-label="Field workspace"
       >
         {[
-          ["jobs", "My work orders"],
+          ["jobs", identity.actor.role === "tech" ? "My work orders" : "Work orders"],
           ["entry", "Entry"],
           ["uploads", `Review uploads (${drafts.length})`],
           ["schedules", "Schedule"],
           ["alerts", `Alerts (${unread.length})`],
-          ...(identity.actor.role === "admin" ? [["team", "Team & SMTP"]] : []),
+          ...(identity.actor.role === "admin"
+            ? [
+                ["team", "Team & SMTP"],
+                ["debugging", "Debugging"],
+              ]
+            : []),
         ].map(([value, label]) => (
           <Button
             key={value}
@@ -909,7 +911,9 @@ export function FieldWorkspace() {
           <p className="text-sm text-muted-foreground" role="status">
             {busy
               ? "Loading work orders…"
-              : `${jobs.length} work orders in this month. Shared jobs appear for every assigned technician.`}
+              : identity.actor.role === "tech"
+                ? `${jobs.length} work orders in this month. Shared jobs appear for every assigned technician.`
+                : `${jobs.length} work orders in this month, including every technician's jobs.`}
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {drafts
@@ -1231,6 +1235,7 @@ export function FieldWorkspace() {
         </section>
       )}
       {tab === "team" && identity.actor.role === "admin" && <FieldTeam />}
+      {tab === "debugging" && identity.actor.role === "admin" && <DeskDebugPanel />}
       {preview && (
         <div
           role="dialog"

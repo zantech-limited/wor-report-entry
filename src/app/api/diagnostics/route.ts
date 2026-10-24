@@ -12,6 +12,7 @@ import {
   mayAttemptDiagnosticsProbe,
   probeDatabase,
 } from "@/lib/diagnostics";
+import { debugAccess, debugDesk } from "@/lib/debug-desk";
 import { HttpError, jsonBody } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -51,14 +52,23 @@ function failed(error: unknown) {
   );
 }
 
+async function authorizedPayload(request: Request, force = false) {
+  const access = await debugAccess(request);
+  if (!force && !access.allowed) return null;
+  return {
+    report: diagnosticReport(),
+    debug: await debugDesk(access.actor, access.accountState),
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const configured = adminTokenConfigured();
-    const unlocked = configured && diagnosticsSessionValid(request.headers.get("cookie"));
+    const payload = await authorizedPayload(request);
     return noStore(
       NextResponse.json({
         configured,
-        ...(unlocked ? { report: diagnosticReport() } : {}),
+        ...(payload || {}),
       }),
     );
   } catch (error) {
@@ -100,7 +110,8 @@ export async function POST(request: Request) {
     if (!mayAttemptDiagnosticsAuth()) return tooMany();
     if (!diagnosticsAuthorized(presented)) return denied();
     try {
-      const response = NextResponse.json({ configured: true, report: diagnosticReport() });
+      const payload = await authorizedPayload(request, true);
+      const response = NextResponse.json({ configured: true, ...(payload || { report: diagnosticReport() }) });
       response.cookies.set(diagnosticsCookie, diagnosticsSessionValue(), diagnosticsCookieOptions(request));
       return noStore(response);
     } catch (error) {
@@ -116,7 +127,12 @@ export async function POST(request: Request) {
     if (!mayAttemptDiagnosticsProbe()) return tooMany();
     try {
       const probe = await probeDatabase();
-      const response = NextResponse.json({ configured: true, report: diagnosticReport(), probe });
+      const payload = await authorizedPayload(request, true);
+      const response = NextResponse.json({
+        configured: true,
+        ...(payload || { report: diagnosticReport() }),
+        probe,
+      });
       if (!cookieOk)
         response.cookies.set(
           diagnosticsCookie,

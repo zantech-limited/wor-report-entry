@@ -4,7 +4,7 @@ import { getMigrations } from "better-auth/db/migration";
 import { auth, currentActor } from "../src/lib/accounts";
 import { database } from "../src/lib/storage";
 import { emptyJob } from "../src/lib/field-model";
-import { hashSnapshot, saveFieldJob, visibleJobs } from "../src/lib/field-jobs";
+import { hashSnapshot, legacyHashSnapshot, saveFieldJob, visibleJobs } from "../src/lib/field-jobs";
 import { getReport, getSuggestions } from "../src/lib/db";
 import { formFields, formValue } from "../src/lib/form-layout";
 import { linkedTechnicianIdentities } from "../src/lib/technician-identity";
@@ -153,6 +153,86 @@ async function main() {
   const amendedRow = (await record<typeof signed>(id))!;
   assert.equal(amendedRow.data.amendedBy, "Timothy Adams");
   assert.equal(amendedRow.data.line.technician, "Timothy");
+
+  const reviewId = randomUUID();
+  const review = emptyJob(reviewId);
+  Object.assign(review.line, {
+    date: "2026-10-22",
+    customer: "John",
+    location: "Site B",
+    arrivalTime: "08:00",
+    departureTime: "09:00",
+    technician: "",
+  });
+  review.assignedIds = [actor.id];
+  review.savedOn = "computer abcd";
+  review.savedAt = "2026-10-22T15:00:00.000Z";
+  const drafted = await saveFieldJob(actor, reviewId, review, 0, randomUUID(), false);
+  const signing = structuredClone((await record<typeof review>(reviewId))!.data);
+  signing.line.technician = "John";
+  signing.line.secondaryTech = "Helper";
+  delete signing.line.additionalTechs;
+  Object.assign(signing.fields, {
+    requesterEmail: "customer@example.test",
+    workCarriedOut: "Serviced the unit",
+    startedDate: "2026-10-22",
+    completedDate: "2026-10-22",
+    completedByName: "John",
+    approvedByName: "Customer",
+    approvedDate: "2026-10-22",
+  });
+  signing.signature = { strokes: [[[0.1, 0.2], [0.4, 0.6], [0.7, 0.3]]] };
+  signing.savedAt = "2026-10-22T16:00:00.000Z";
+  signing.signedHash = legacyHashSnapshot(signing);
+  const submitted = await saveFieldJob(actor, reviewId, signing, drafted.revision, randomUUID(), true);
+  const submittedRow = (await record<typeof review>(reviewId))!;
+  assert.equal(submittedRow.data.state, "submitted");
+  assert.equal(submittedRow.data.line.technician, "John");
+  assert.equal(submittedRow.data.line.secondaryTech, "Helper");
+  const noted = structuredClone(submittedRow.data);
+  noted.line.comments = "Desk note that is not part of the signed preview";
+  noted.savedAt = "2026-10-22T17:00:00.000Z";
+  noted.savedOn = "phone wxyz";
+  await assert.rejects(
+    saveFieldJob(actor, reviewId, noted, submitted.revision, randomUUID(), true),
+    /Describe the reason/,
+  );
+  noted.amendmentReason = "Record an internal note";
+  const notedAck = await saveFieldJob(actor, reviewId, noted, submitted.revision, randomUUID(), true);
+  assert.equal((await record<typeof review>(reviewId))!.data.line.customer, "John");
+  const renamed = structuredClone((await record<typeof review>(reviewId))!.data);
+  renamed.line.customer = "Jane";
+  renamed.signature = { strokes: [[[0.2, 0.2], [0.5, 0.7], [0.8, 0.4]]] };
+  renamed.amendmentReason = "Correct the customer";
+  renamed.signedHash = noted.signedHash;
+  await assert.rejects(
+    saveFieldJob(actor, reviewId, renamed, notedAck.revision, randomUUID(), true),
+    /signed preview changed/,
+  );
+  renamed.signedHash = hashSnapshot(renamed);
+  await saveFieldJob(actor, reviewId, renamed, notedAck.revision, randomUUID(), true);
+  const renamedRow = (await record<typeof review>(reviewId))!;
+  assert.equal(renamedRow.data.line.customer, "Jane");
+  assert.equal(renamedRow.data.line.technician, "John");
+
+  const { debugDesk } = await import("../src/lib/debug-desk");
+  const { rememberDeskEvent } = await import("../src/lib/desk-log");
+  rememberDeskEvent("review", new Error("The signed preview changed. Review and sign this version again."));
+  const debug = await debugDesk(actor, "ready");
+  assert.equal(debug.account.role, "admin");
+  assert.equal(debug.account.approval, "active");
+  assert.equal(debug.account.name, "Timothy Adams");
+  assert.equal(debug.mail.mode, "disabled");
+  assert.equal(debug.mail.password, "missing");
+  assert.equal(debug.mail.host, "missing");
+  assert.ok(debug.mail.recent.some((row) => row.state === "failed" && /SMTP is not configured/.test(row.error || "")));
+  assert.equal(JSON.stringify(debug.mail).includes("customer@example.test"), false);
+  assert.equal(JSON.stringify(debug).includes("Local-test-password"), false);
+  assert.equal(JSON.stringify(debug).includes(actor.email), false);
+  assert.ok(debug.devices.some((row) => row.device === "computer abcd" && row.count >= 1));
+  assert.ok(debug.events.some((row) => row.kind === "review" && /signed preview/.test(row.message) && row.reference.length === 8));
+  assert.match(debug.serviceWorker, /zantech-shell-v061/);
+  assert.equal(debug.template, "present");
   console.log("Shared drafts, technician history, and mail failure checks passed.");
 }
 

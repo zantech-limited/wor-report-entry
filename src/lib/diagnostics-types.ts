@@ -47,6 +47,53 @@ export type DiagnosticsPayload = {
   configured: boolean;
   report?: DiagnosticReport;
   probe?: ProbeResult;
+  debug?: DebugDesk;
   error?: string;
   locked?: boolean;
+};
+
+export type DebugMailResult = {
+  kind: "customer" | "account";
+  state: string;
+  at: string;
+  error?: string;
+};
+
+export type DebugDevice = {
+  device: string;
+  count: number;
+  latest: string;
+};
+
+export type DebugEvent = {
+  at: string;
+  reference: string;
+  kind: "error" | "review" | "upload";
+  message: string;
+};
+
+export type DebugAccount = {
+  status: "ready" | "not signed in" | "database unavailable";
+  name?: string;
+  role?: string;
+  approval?: string;
+};
+
+export type DebugDesk = {
+  version: string;
+  commit: string;
+  serviceWorker: string;
+  template: "present" | "missing";
+  database: ProbeResult;
+  mail: {
+    mode: string;
+    host: string;
+    from: string;
+    password: string;
+    recent: DebugMailResult[];
+  };
+  devices: DebugDevice[];
+  devicesNote?: string;
+  account: DebugAccount;
+  events: DebugEvent[];
 };

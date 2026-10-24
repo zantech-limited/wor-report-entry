@@ -90,6 +90,18 @@ async function main() {
     (await visibleJobs({ ...actor, id: users[6].id }, "2026-10")).length,
     0,
   );
+  for (const role of ["manager", "supervisor", "admin"] as const) {
+    assert.equal(
+      (await visibleJobs({ ...actor, id: users[6].id, role }, "2026-10")).length,
+      1,
+      `${role} sees every work order`,
+    );
+  }
+  assert.equal(
+    (await visibleJobs({ ...actor, role: "manager" }, "2026-10")).length,
+    1,
+    "A manager still sees a work order assigned to them",
+  );
   assert.equal((await visibleJobs(actor, "2026-09")).length, 0);
   await assert.rejects(
     saveFieldJob(actor, id, job, 0, randomUUID(), false),

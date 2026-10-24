@@ -8,7 +8,7 @@ import {
   type WorkOrder,
 } from "@/lib/model";
 import {
-  customerSnapshot,
+  canonicalSnapshot,
   needsAmendmentReason,
   withLeadName,
   type FieldJob,
@@ -57,7 +57,7 @@ export function FieldJobEditor({
       };
     setReviewed(false);
     const content = (value: FieldJob) =>
-      JSON.stringify({ ...customerSnapshot(value), signature: null });
+      JSON.stringify({ ...canonicalSnapshot(value), signature: null });
     const changed = content(next) !== content(job);
     onChange({
       ...next,
@@ -185,7 +185,7 @@ export function FieldJobEditor({
     try {
       const digest = await crypto.subtle.digest(
         "SHA-256",
-        new TextEncoder().encode(JSON.stringify(customerSnapshot(signingJob))),
+        new TextEncoder().encode(JSON.stringify(canonicalSnapshot(signingJob))),
       );
       onChange({
         ...signingJob,

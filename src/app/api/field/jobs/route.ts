@@ -1,3 +1,4 @@
+import { rememberDeskEvent } from "@/lib/desk-log";
 import { actorFor, jsonBody, errorResponse, HttpError } from "@/lib/http";
 import { processMailQueue } from "@/lib/mail-queue";
 import { records } from "@/lib/records";
@@ -22,19 +23,21 @@ export async function GET(request: Request) {
   }
 }
 export async function POST(request: Request) {
+  let submit = false;
   try {
     const actor = await actorFor(request, ["tech", "admin"]);
     const body = await jsonBody(request);
+    submit = body.submit === true;
     const result = await saveFieldJob(
       actor,
       body.id,
       body.job,
       body.revision,
       body.operationId,
-      body.submit === true,
+      submit,
     );
     let mail: { state: string; error?: string } | undefined;
-    if (body.submit === true) {
+    if (submit) {
       try {
         await processMailQueue(1);
         const queued = (await records<{
@@ -57,6 +60,7 @@ export async function POST(request: Request) {
     }
     return Response.json({ ...result, mail });
   } catch (error) {
-    return errorResponse(error);
+    const reference = rememberDeskEvent(submit ? "review" : "upload", error);
+    return errorResponse(error, { reference, kind: submit ? "review" : "upload" });
   }
 }
