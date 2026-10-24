@@ -33,6 +33,7 @@ import {
   type FieldHistoryHandlers,
 } from "./customer-form-preview";
 import { SuggestInput } from "./suggest-input";
+import { ClockTimeInput } from "./clock-time-input";
 import { deskApi } from "@/lib/client-api";
 import type { Part } from "@/lib/parts-model";
 import { Input } from "./ui/input";
@@ -667,9 +668,21 @@ export function FieldJobEditor({
           <h3 className="font-semibold">Completion and customer approval</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             {contact("Date started", "startedDate", "date")}
-            {input("Time started", "arrivalTime", "time")}
+            <ClockTimeInput
+              id="field-arrival"
+              label="Time started"
+              disabled={readOnly}
+              value={job.line.arrivalTime}
+              onChange={(value) => line("arrivalTime", value)}
+            />
             {contact("Date completed", "completedDate", "date")}
-            {input("Time completed", "departureTime", "time")}
+            <ClockTimeInput
+              id="field-departure"
+              label="Time completed"
+              disabled={readOnly}
+              value={job.line.departureTime}
+              onChange={(value) => line("departureTime", value)}
+            />
             {contact("Completed by: printed name", "completedByName")}
             <p className="text-xs text-muted-foreground sm:col-span-2">
               Tech name on the form, the saved work order, the PDF and the

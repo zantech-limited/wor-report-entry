@@ -28,6 +28,8 @@ import {
   type FieldSuggestions,
 } from "@/lib/field-suggestion-model";
 import { CustomerFormPreview } from "./customer-form-preview";
+import { DownloadPdfButton } from "./download-pdf-button";
+import { PdfViewer } from "./pdf-viewer";
 import { DraftConflict } from "./draft-conflict";
 import { FieldTeam } from "./field-team";
 import { DeskDebugPanel } from "./desk-debug-panel";
@@ -125,6 +127,7 @@ export function FieldWorkspace() {
     [alerts, setAlerts] = useState<DeskRecord<Alert>[]>([]),
     [selected, setSelected] = useState<LocalDraft>(),
     [preview, setPreview] = useState<DeskRecord<FieldJob>>(),
+    [pdfUrl, setPdfUrl] = useState<string>(),
     [localSaved, setLocalSaved] = useState(""),
     [uploadBusy, setUploadBusy] = useState(false),
     [syncTick, setSyncTick] = useState(0);
@@ -1108,14 +1111,13 @@ export function FieldWorkspace() {
                     </Button>
                   )}
                   {row.kind !== "legacy-job" && (
-                    <a
-                      className="inline-flex min-h-11 items-center text-sm underline"
-                      href={`/api/field/jobs/${row.id}/pdf`}
-                      target="_blank"
-                      rel="noreferrer"
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setPdfUrl(`/api/field/jobs/${row.id}/pdf`)}
                     >
                       PDF
-                    </a>
+                    </Button>
                   )}
                 </div>
               </article>
@@ -1138,12 +1140,23 @@ export function FieldWorkspace() {
       {tab === "entry" &&
         (selected ? (
           <>
-            <p role="status" aria-live="polite" className="text-sm">
-              {localSaved || "Device draft"} ·{" "}
-              {selected.submit
-                ? "Signed version ready; review uploads to send"
-                : "Draft — syncs automatically when connected"}
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <p role="status" aria-live="polite" className="text-sm">
+                {localSaved || "Device draft"} ·{" "}
+                {selected.submit
+                  ? "Signed version ready; review uploads to send"
+                  : "Draft — syncs automatically when connected"}
+              </p>
+              <DownloadPdfButton
+                url={`/api/field/jobs/${selected.id}/pdf`}
+                disabled={selected.revision < 1}
+                disabledReason={
+                  selected.revision < 1
+                    ? "This PDF is available after the work order syncs."
+                    : undefined
+                }
+              />
+            </div>
             <FieldJobEditor
               key={selected.id}
               actor={identity.actor}
@@ -1333,6 +1346,9 @@ export function FieldWorkspace() {
       )}
       {tab === "team" && identity.actor.role === "admin" && <FieldTeam />}
       {tab === "debugging" && identity.actor.role === "admin" && <DeskDebugPanel />}
+      {pdfUrl && (
+        <PdfViewer url={pdfUrl} onClose={() => setPdfUrl(undefined)} />
+      )}
       {preview && (
         <div
           role="dialog"
@@ -1360,6 +1376,7 @@ export function FieldWorkspace() {
               <JobRevisionLinks
                 id={preview.id}
                 showAmendments={identity.actor.role === "admin"}
+                onOpenPdf={setPdfUrl}
               />
             )}
           </div>
@@ -1553,9 +1570,11 @@ function AlertCreator({ users }: { users: TechnicianOption[] }) {
 function JobRevisionLinks({
   id,
   showAmendments,
+  onOpenPdf,
 }: {
   id: string;
   showAmendments: boolean;
+  onOpenPdf: (url: string) => void;
 }) {
   const [data, setData] = useState<{
     signed: { id: string; signedAt: string }[];
@@ -1593,15 +1612,16 @@ function JobRevisionLinks({
     <section className="my-5 grid gap-3">
       <h3 className="font-semibold">Signed copies and changes</h3>
       {data.signed.map((row) => (
-        <a
+        <button
           key={row.id}
-          className="inline-flex min-h-11 items-center text-sm underline"
-          target="_blank"
-          rel="noreferrer"
-          href={`/api/field/jobs/${id}/pdf?revision=${row.id}`}
+          type="button"
+          className="inline-flex min-h-11 items-center text-left text-sm underline"
+          onClick={() =>
+            onOpenPdf(`/api/field/jobs/${id}/pdf?revision=${row.id}`)
+          }
         >
           Signed copy · {new Date(row.signedAt).toLocaleString()}
-        </a>
+        </button>
       ))}
       {showAmendments &&
         amendments.map((row, i) => (

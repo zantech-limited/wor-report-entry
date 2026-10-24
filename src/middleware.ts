@@ -6,9 +6,12 @@ export function middleware(request: NextRequest) {
   const https =
     request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https" ||
     request.nextUrl.protocol === "https:";
+  const sameOriginPdf = /^\/api\/field\/jobs\/[^/]+\/pdf$/.test(
+    request.nextUrl.pathname,
+  );
   response.headers.set("Cache-Control", "private, no-store");
   response.headers.set("X-Content-Type-Options", "nosniff");
-  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("X-Frame-Options", sameOriginPdf ? "SAMEORIGIN" : "DENY");
   response.headers.set("Referrer-Policy", "same-origin");
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
   response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
@@ -23,7 +26,9 @@ export function middleware(request: NextRequest) {
     );
   response.headers.set(
     "Content-Security-Policy",
-    "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'",
+    sameOriginPdf
+      ? "frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+      : "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'",
   );
   return response;
 }
