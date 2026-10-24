@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { inflateSync } from "node:zlib";
 import { customerPdf } from "../src/lib/customer-pdf";
 import { customerSnapshot, emptyJob } from "../src/lib/field-model";
+import { insertRecord } from "../src/lib/records";
 import { createMonthlyPdf } from "../src/lib/report-pdf";
 import {
   hasSupplementaryDetails,
@@ -10,7 +13,27 @@ import {
 import type { WorkEntry } from "../src/lib/model";
 import { PDFDocument } from "pdf-lib";
 import { formFields, formValue } from "../src/lib/form-layout";
+function signatureStrokes(pdf: Uint8Array | Buffer) {
+  const text = Buffer.from(pdf).toString("latin1");
+  let strokes = 0;
+  for (const match of text.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
+    let body = Buffer.from(match[1], "latin1");
+    try {
+      body = inflateSync(body);
+    } catch {
+      continue;
+    }
+    const source = body.toString("latin1");
+    strokes += source.split("\n").filter((line) => line.startsWith("1.35 w")).length;
+  }
+  return strokes;
+}
+
 async function main() {
+  process.env.DESK_ACCOUNTS_ENABLED = "false";
+  process.env.APP_URL = process.env.APP_URL || "http://127.0.0.1:43123";
+  mkdirSync(path.join(process.cwd(), ".checks"), { recursive: true });
+  process.env.DATA_DIR = mkdtempSync(path.join(process.cwd(), ".checks/field-pdf-"));
   const job = emptyJob("00000000-0000-4000-8000-000000000001");
   Object.assign(job.line, {
     wor: "TEST-17713",
@@ -142,6 +165,49 @@ async function main() {
     { month: "", from: "2026-10-01", to: "2026-11-30" },
   );
   writeFileSync(".checks/field-pdf/management.pdf", management);
+  const unsigned = await customerPdf(customerSnapshot({ ...job, signature: undefined, technicianSignature: undefined }));
+  assert.equal(signatureStrokes(unsigned), 0);
+  assert.ok(signatureStrokes(charged) >= 2, "a saved signature is drawn on the form");
+  const savedId = "00000000-0000-4000-8000-0000000000ab";
+  const saved = emptyJob(savedId);
+  saved.line.wor = "1042";
+  saved.line.customer = "Caribbean Supplies";
+  saved.line.date = "2026-10-24";
+  await insertRecord("job", "local-legacy", saved, savedId);
+  const open = structuredClone(saved);
+  open.signature = job.signature;
+  open.technicianSignature = {
+    strokes: [
+      [
+        [0.15, 0.4],
+        [0.45, 0.8],
+        [0.8, 0.3],
+      ],
+    ],
+  };
+  const route = await import("../src/app/api/field/jobs/[id]/pdf/route");
+  const origin = process.env.APP_URL;
+  const preview = await route.POST(
+    new Request(`${origin}/api/field/jobs/${savedId}/pdf`, {
+      method: "POST",
+      headers: { origin, "content-type": "application/json" },
+      body: JSON.stringify({ snapshot: customerSnapshot(open) }),
+    }),
+    { params: Promise.resolve({ id: savedId }) },
+  );
+  assert.equal(preview.status, 200);
+  const previewBytes = Buffer.from(await preview.arrayBuffer());
+  assert.equal(previewBytes.subarray(0, 4).toString(), "%PDF");
+  assert.ok(
+    signatureStrokes(previewBytes) >= 4,
+    "the open form's signatures are drawn even when the saved job has none",
+  );
+  const stored = await route.GET(
+    new Request(`${origin}/api/field/jobs/${savedId}/pdf`, { headers: { origin } }),
+    { params: Promise.resolve({ id: savedId }) },
+  );
+  assert.equal(stored.status, 200);
+  assert.equal(signatureStrokes(Buffer.from(await stored.arrayBuffer())), 0);
   console.log(
     "Customer form and management PDF checks passed: six techs, one-page fit, overflow pages, revenue/notes/parts qualification and inclusive multi-month filtering.",
   );

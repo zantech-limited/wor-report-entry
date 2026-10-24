@@ -7,6 +7,8 @@ import {
   DialogDescription,
 } from "./ui/dialog";
 import type { Signature } from "@/lib/field-model";
+const PAD_WIDTH = 600;
+const PAD_HEIGHT = 200;
 export function SignaturePad({
   label,
   value,
@@ -38,15 +40,15 @@ export function SignaturePad({
     point.y = event.clientY;
     const local = matrix ? point.matrixTransform(matrix.inverse()) : point;
     return [
-      Math.max(0, Math.min(1, local.x / 600)),
-      Math.max(0, Math.min(1, local.y / 160)),
+      Math.max(0, Math.min(1, local.x / PAD_WIDTH)),
+      Math.max(0, Math.min(1, local.y / PAD_HEIGHT)),
     ];
   }
   const pad = (
     <svg
       role="application"
       aria-label={`${label} drawing area. Draw with a finger, pen, or mouse.`}
-      viewBox="0 0 600 160"
+      viewBox={`0 0 ${PAD_WIDTH} ${PAD_HEIGHT}`}
       className="h-auto w-full touch-none rounded-lg border bg-white text-slate-900"
       onPointerDown={(event) => {
         event.preventDefault();
@@ -77,10 +79,10 @@ export function SignaturePad({
           key={index}
           fill="none"
           stroke="currentColor"
-          strokeWidth="2"
+          strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
-          points={stroke.map(([x, y]) => `${x * 600},${y * 160}`).join(" ")}
+          points={stroke.map(([x, y]) => `${x * PAD_WIDTH},${y * PAD_HEIGHT}`).join(" ")}
         />
       ))}
     </svg>

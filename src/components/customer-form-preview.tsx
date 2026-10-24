@@ -3,6 +3,7 @@ import { useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { useFormLayout } from "@/lib/use-form-layout";
 import {
   FORM_OPTIONS,
+  SIGNATURE_MARKS,
   withLeadName,
   type FieldJob,
   type Signature,
@@ -49,7 +50,7 @@ export function SignatureImage({ value }: { value?: Signature }) {
           key={i}
           fill="none"
           stroke="currentColor"
-          strokeWidth="2"
+          strokeWidth="2.5"
           points={stroke.map(([x, y]) => `${x * 600},${y * 160}`).join(" ")}
         />
       ))}
@@ -326,23 +327,23 @@ export function CustomerFormPreview({
               ) : null;
             })}
           </div>
-          {(["technicianSignature", "signature"] as const).map((key, i) => (
-            <div key={key} style={position(462, i ? 1297 : 1193, 183, 40)}>
+          {SIGNATURE_MARKS.map((mark, i) => (
+            <div key={mark.key} style={position(mark.x, mark.y, mark.w, mark.h)}>
               {onChange ? (
                 <button
                   type="button"
                   className="h-full w-full rounded bg-blue-500/5 ring-1 ring-blue-500/20"
                   aria-label={i ? "Customer signature" : "Technician signature"}
-                  onClick={() => setSign(key)}
+                  onClick={() => setSign(mark.key)}
                 >
-                  {job[key] ? (
-                    <SignatureImage value={job[key]} />
+                  {job[mark.key] ? (
+                    <SignatureImage value={job[mark.key]} />
                   ) : (
                     <span style={{ fontSize: "1.2cqw" }}>Tap to sign</span>
                   )}
                 </button>
               ) : (
-                <SignatureImage value={job[key]} />
+                <SignatureImage value={job[mark.key]} />
               )}
             </div>
           ))}

@@ -1149,6 +1149,7 @@ export function FieldWorkspace() {
               </p>
               <DownloadPdfButton
                 url={`/api/field/jobs/${selected.id}/pdf`}
+                job={selected.job}
                 disabled={selected.revision < 1}
                 disabledReason={
                   selected.revision < 1
