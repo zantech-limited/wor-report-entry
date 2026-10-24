@@ -80,7 +80,7 @@ Part No., Description, and QTY each remain **one multiline field and one Excel c
 
 Master columns can be sorted by clicking their headings; Clear filters restores the whole list. Entry displays informational notices for repeated WOR/serial values in the current month and other saved workbooks. Each match identifies its workbook, customer, date, and matching field, with a link to the visit. The No. column is never used for duplicate matching. Return visits are allowed.
 
-Reports supports inclusive start/end dates, an explicit undated option, and optional monthly and service graphs. Both primary and secondary technicians receive the full recorded visit hours; a name entered in both slots counts once. Overall site hours count each visit once, so summed technician hours may exceed site hours. The header and footer show the package version. Every page shows © Zantech Limited and a red bottom-left Internal use only notice.
+Reports supports inclusive start/end dates, an explicit undated option, and optional monthly and service graphs. Both primary and secondary technicians receive the full recorded visit hours; a name entered in both slots counts once. Overall site hours count each visit once, so summed technician hours may exceed site hours. The header and footer show the package version and the Zantech mark. Every page shows © Zantech Limited.
 
 Failed saves retain the form and offer Retry save rather than retrying indefinitely. Month changes and normal navigation links wait for saving; browser unload warns while changes are pending.
 

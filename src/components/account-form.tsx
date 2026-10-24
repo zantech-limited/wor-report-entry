@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, type FormEvent } from "react";
+import Image from "next/image";
 import { deskApi } from "@/lib/client-api";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -84,6 +85,15 @@ export function AccountForm({ setup = false }: { setup?: boolean }) {
   }
   return (
     <section className="mx-auto my-12 w-full max-w-md rounded-2xl border bg-card p-6 shadow-sm">
+      <Image
+        src="/icons/zantech-logo.png"
+        alt="Zantech"
+        width={96}
+        height={96}
+        priority
+        unoptimized
+        className="mb-4 size-24"
+      />
       <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
         Zantech Limited
       </p>
