@@ -1,7 +1,11 @@
 import { PDFDocument, rgb, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { readFileSync } from "node:fs";
-import type { CustomerSnapshot, Signature } from "./field-model";
+import {
+  SIGNATURE_MARKS,
+  type CustomerSnapshot,
+  type Signature,
+} from "./field-model";
 import { readFormLayout } from "./form-layout-store";
 import {
   fieldsForLayout,
@@ -128,25 +132,27 @@ export async function customerPdf(
         borderColor: rgb(0.86, 0.08, 0.08),
         borderWidth: 1.1,
       });
-  function signature(value: Signature | null, y: number) {
+  function signature(
+    value: Signature | null,
+    box: { x: number; y: number; w: number; h: number },
+  ) {
     if (!value) return;
     for (const stroke of value.strokes)
       for (let i = 1; i < stroke.length; i++)
         page.drawLine({
           start: {
-            x: (462 + stroke[i - 1][0] * 183) * scale,
-            y: height - (y + stroke[i - 1][1] * 40) * scale,
+            x: (box.x + stroke[i - 1][0] * box.w) * scale,
+            y: height - (box.y + stroke[i - 1][1] * box.h) * scale,
           },
           end: {
-            x: (462 + stroke[i][0] * 183) * scale,
-            y: height - (y + stroke[i][1] * 40) * scale,
+            x: (box.x + stroke[i][0] * box.w) * scale,
+            y: height - (box.y + stroke[i][1] * box.h) * scale,
           },
-          thickness: 0.7,
+          thickness: 1.35,
           color: rgb(0, 0, 0),
         });
   }
-  signature(snapshot.technicianSignature, 1193);
-  signature(snapshot.signature, 1297);
+  for (const mark of SIGNATURE_MARKS) signature(snapshot[mark.key], mark);
   let extra: PDFPage | undefined,
     y = 0;
   function continuation() {

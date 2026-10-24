@@ -1,16 +1,20 @@
 "use client";
 import { useState } from "react";
+import { customerSnapshot, type FieldJob } from "@/lib/field-model";
 import { fetchPdfFile, savePdfFile } from "@/lib/save-pdf";
 import { Button } from "./ui/button";
 
 export function DownloadPdfButton({
   url,
   file,
+  job,
   disabled = false,
   disabledReason,
 }: {
   url?: string;
   file?: File;
+  /** Open form. When set, the PDF is drawn from this copy, including unsynced signatures. */
+  job?: FieldJob;
   disabled?: boolean;
   disabledReason?: string;
 }) {
@@ -44,7 +48,10 @@ export function DownloadPdfButton({
     setBusy(true);
     setNote("");
     try {
-      const downloaded = await fetchPdfFile(url);
+      const downloaded = await fetchPdfFile(
+        url,
+        job ? { snapshot: customerSnapshot(job) } : undefined,
+      );
       const result = await savePdfFile(downloaded);
       if (result === "needs-gesture") {
         setReady(downloaded);

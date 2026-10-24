@@ -1,8 +1,10 @@
-import { actorFor, errorResponse, HttpError } from "@/lib/http";
+import { actorFor, errorResponse, HttpError, jsonBody } from "@/lib/http";
 import { record } from "@/lib/records";
-import { canSeeJob } from "@/lib/field-jobs";
+import { canSeeJob, hashSnapshot } from "@/lib/field-jobs";
 import {
   customerSnapshot,
+  emptyJob,
+  sanitizeCustomerSnapshot,
   type FieldJob,
   type CustomerSnapshot,
 } from "@/lib/field-model";
@@ -35,7 +37,71 @@ export async function GET(
       snapshot = signed.data.snapshot;
       approved = true;
     }
-    const bytes = await customerPdf(snapshot, { approved });
+    return pdfResponse(snapshot, approved, request);
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+/** The edit page sends the open form, including a signature that has not synced yet. */
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  try {
+    const actor = await actorFor(request),
+      { id } = await context.params,
+      row = await record<FieldJob>(id);
+    if (!row || row.kind !== "job" || !canSeeJob(actor, row))
+      throw new HttpError("Work order not found.", 404);
+    const body = await jsonBody(request, 1_000_000);
+    let snapshot: CustomerSnapshot;
+    try {
+      snapshot = sanitizeCustomerSnapshot(
+        body && typeof body === "object" ? body.snapshot : undefined,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      throw new HttpError(
+        message.startsWith("Invalid") ? message : "Invalid work order preview.",
+      );
+    }
+    const signedId = row.data.signedRevisionId;
+    let approved = false;
+    if (signedId) {
+      const signed = await record<{
+        jobId: string;
+        snapshot: CustomerSnapshot;
+      }>(signedId);
+      if (signed && signed.kind === "signed" && signed.data.jobId === id) {
+        approved =
+          hashSnapshot(jobFromSnapshot(signed.data.snapshot)) ===
+          hashSnapshot(jobFromSnapshot(snapshot));
+      }
+    }
+    return pdfResponse(snapshot, approved, request);
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+function jobFromSnapshot(snapshot: CustomerSnapshot): FieldJob {
+  const job = emptyJob(snapshot.line.id || "preview");
+  return {
+    ...job,
+    line: { ...job.line, ...snapshot.line },
+    fields: { ...job.fields, ...snapshot.fields },
+    signature: snapshot.signature ?? undefined,
+    technicianSignature: snapshot.technicianSignature ?? undefined,
+  };
+}
+
+function pdfResponse(
+  snapshot: CustomerSnapshot,
+  approved: boolean,
+  request: Request,
+) {
+  return customerPdf(snapshot, { approved }).then((bytes) => {
     const filename = workOrderPdfFilename({
       wor: snapshot.line.wor,
       customer: snapshot.line.customer,
@@ -52,7 +118,5 @@ export async function GET(
           "frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'",
       },
     });
-  } catch (error) {
-    return errorResponse(error);
-  }
+  });
 }

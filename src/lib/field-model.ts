@@ -123,6 +123,103 @@ export function customerSnapshot(job: FieldJob) {
 }
 export type CustomerSnapshot = ReturnType<typeof customerSnapshot>;
 
+/**
+ * Ink for the two signature lines. The bottom edge matches the printed line;
+ * a taller box grows upward, beside the printed name and clear of the row below.
+ */
+export const SIGNATURE_MARKS = [
+  { key: "technicianSignature" as const, x: 462, y: 1181, w: 200, h: 52 },
+  { key: "signature" as const, x: 462, y: 1285, w: 200, h: 52 },
+];
+
+const LONG_FIELDS = new Set([
+  "workRequired",
+  "workCarriedOut",
+  "otherPerformed",
+  "otherNeeded",
+]);
+
+function previewText(value: unknown, max: number) {
+  return typeof value === "string" ? value.slice(0, max) : "";
+}
+
+function previewSignature(value: unknown): Signature | null {
+  if (value == null) return null;
+  if (typeof value !== "object" || !Array.isArray((value as Signature).strokes))
+    throw new Error("Invalid or empty signature.");
+  const strokes = (value as Signature).strokes;
+  let points = 0;
+  if (!strokes.length || strokes.length > 500)
+    throw new Error("Invalid or empty signature.");
+  for (const stroke of strokes) {
+    if (!Array.isArray(stroke) || stroke.length < 2)
+      throw new Error("Invalid or empty signature.");
+    points += stroke.length;
+    for (const point of stroke) {
+      if (
+        !Array.isArray(point) ||
+        point.length !== 2 ||
+        point.some(
+          (n) => typeof n !== "number" || !Number.isFinite(n) || n < 0 || n > 1,
+        )
+      )
+        throw new Error("Invalid or empty signature.");
+    }
+  }
+  if (points > 4000) throw new Error("Invalid or empty signature.");
+  return { strokes };
+}
+
+/** Customer-visible fields from the open form, including signatures not yet saved. */
+export function sanitizeCustomerSnapshot(input: unknown): CustomerSnapshot {
+  if (!input || typeof input !== "object")
+    throw new Error("Invalid work order preview.");
+  const raw = input as {
+    line?: unknown;
+    fields?: unknown;
+    signature?: unknown;
+    technicianSignature?: unknown;
+  };
+  const lineSource =
+    raw.line && typeof raw.line === "object"
+      ? (raw.line as Record<string, unknown>)
+      : {};
+  const fieldSource =
+    raw.fields && typeof raw.fields === "object"
+      ? (raw.fields as Record<string, unknown>)
+      : {};
+  const job = emptyJob(
+    previewText(lineSource.id, 80) || "00000000-0000-4000-8000-000000000000",
+  );
+  for (const key of Object.keys(blankLine()) as (keyof WorkOrder)[]) {
+    if (key === "additionalTechs") {
+      const extra = lineSource.additionalTechs;
+      job.line.additionalTechs = Array.isArray(extra)
+        ? extra
+            .filter((name): name is string => typeof name === "string")
+            .slice(0, 6)
+            .map((name) => name.slice(0, 200))
+        : [];
+      continue;
+    }
+    if (key === "id") continue;
+    job.line[key] = previewText(lineSource[key], 10000);
+  }
+  for (const key of CONTACT_FIELDS)
+    job.fields[key] = previewText(
+      fieldSource[key],
+      LONG_FIELDS.has(key) ? 20000 : 512,
+    );
+  if (
+    typeof fieldSource.serviceOption === "string" &&
+    FORM_OPTIONS.includes(fieldSource.serviceOption as FormOption)
+  )
+    job.fields.serviceOption = fieldSource.serviceOption as FormOption;
+  job.signature = previewSignature(raw.signature) ?? undefined;
+  job.technicianSignature = previewSignature(raw.technicianSignature) ?? undefined;
+  return customerSnapshot(job);
+}
+
 const SIGNED_LINE_KEYS = [
   "id",
   "wor",

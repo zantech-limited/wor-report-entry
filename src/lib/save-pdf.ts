@@ -19,10 +19,14 @@ function installedApp() {
 }
 
 /** Fetch a PDF from an already-authorized route and keep the server's filename. */
-export async function fetchPdfFile(url: string): Promise<File> {
+export async function fetchPdfFile(url: string, body?: unknown): Promise<File> {
   const response = await fetch(url, {
+    method: body === undefined ? "GET" : "POST",
     credentials: "same-origin",
     cache: "no-store",
+    headers:
+      body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) {
     let message = "Could not download the PDF.";
