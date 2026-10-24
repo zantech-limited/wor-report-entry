@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     (process.env.APP_URL || new URL(request.url).origin)
   )
     return Response.json({ error: "Use the setup page." }, { status: 403 });
-  if (!mayAttemptLogin())
+  if (!(await mayAttemptLogin()))
     return Response.json({ error: "Wait before retrying." }, { status: 429 });
   if (Number(request.headers.get("content-length") || 0) > 8192)
     return Response.json(

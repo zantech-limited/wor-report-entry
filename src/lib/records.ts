@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { database, type Storage } from "./storage";
+import { database, type Row, type Storage } from "./storage";
 export type DeskRecord<T = Record<string, unknown>> = {
   id: string;
   kind: string;
@@ -8,6 +8,16 @@ export type DeskRecord<T = Record<string, unknown>> = {
   data: T;
   updatedAt: string;
 };
+function mapRecord<T>(row: Row): DeskRecord<T> {
+  return {
+    id: String(row.id),
+    kind: String(row.kind),
+    ownerId: String(row.owner_id),
+    revision: Number(row.revision),
+    data: JSON.parse(String(row.data)),
+    updatedAt: String(row.updated_at),
+  };
+}
 export async function records<T>(
   kind: string,
   ownerId?: string,
@@ -19,14 +29,36 @@ export async function records<T>(
       " ORDER BY updated_at DESC",
     ownerId ? [kind, ownerId] : [kind],
   );
-  return rows.map((row) => ({
-    id: String(row.id),
-    kind: String(row.kind),
-    ownerId: String(row.owner_id),
-    revision: Number(row.revision),
-    data: JSON.parse(String(row.data)),
-    updatedAt: String(row.updated_at),
-  }));
+  return rows.map((row) => mapRecord<T>(row));
+}
+/** Match a top-level JSON field without loading every record of that kind. */
+export async function recordsWhere<T>(
+  kind: string,
+  field: "jobId" | "state",
+  expected: string[],
+): Promise<DeskRecord<T>[]> {
+  const values = [...new Set(expected.filter((value) => value.length > 0 && value.length <= 80))];
+  if (!values.length) return [];
+  const db = await database();
+  const expression =
+    db.config.engine === "mysql"
+      ? `JSON_UNQUOTE(JSON_EXTRACT(data, '$.${field}'))`
+      : db.config.engine === "sqlite"
+        ? `json_extract(data, '$.${field}')`
+        : `(data::json->>'${field}')`;
+  const placeholders = values.map(() => "?").join(", ");
+  try {
+    const rows = await db.query(
+      `SELECT * FROM desk_records WHERE kind = ? AND ${expression} IN (${placeholders}) ORDER BY updated_at DESC`,
+      [kind, ...values],
+    );
+    return rows.map((row) => mapRecord<T>(row));
+  } catch {
+    const all = await records<T>(kind);
+    return all.filter((row) =>
+      values.includes(String((row.data as { [key: string]: unknown })[field] ?? "")),
+    );
+  }
 }
 export async function record<T>(
   id: string,

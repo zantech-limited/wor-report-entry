@@ -1,5 +1,5 @@
 import { actorFor, errorResponse, HttpError } from "@/lib/http";
-import { record, records } from "@/lib/records";
+import { record, recordsWhere } from "@/lib/records";
 import { canSeeJob } from "@/lib/field-jobs";
 import type { FieldJob } from "@/lib/field-model";
 export const dynamic = "force-dynamic";
@@ -13,24 +13,24 @@ export async function GET(
       row = await record<FieldJob>(id);
     if (!row || row.kind !== "job" || !canSeeJob(actor, row))
       throw new HttpError("Work order not found.", 404);
-    const signed = await records<{ jobId: string; signedAt: string }>("signed"),
-      events = await records<{
+    const signed = await recordsWhere<{ jobId: string; signedAt: string }>("signed", "jobId", [id]),
+      events = await recordsWhere<{
         jobId: string;
         revision: number;
         reason: string;
         action: string;
         actorName?: string;
         at?: string;
-      }>("audit"),
-      history = await records<{
+      }>("audit", "jobId", [id]),
+      history = await recordsWhere<{
         jobId: string;
         revision: number;
         reason?: string;
         actorName?: string;
         at?: string;
-      }>("job-history");
+      }>("job-history", "jobId", [id]);
     const amendments = history
-      .filter((item) => item.data.jobId === id && item.data.reason?.trim())
+      .filter((item) => item.data.reason?.trim())
       .map((item) => ({
         time: item.data.at || item.updatedAt,
         revision: item.data.revision,

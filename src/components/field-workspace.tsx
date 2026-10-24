@@ -740,7 +740,7 @@ export function FieldWorkspace() {
         <p className="my-4">
           Sign in online once to prepare this device for offline work.
         </p>
-        <a className="underline" href="/login">
+        <a className="inline-flex min-h-11 items-center underline" href="/login">
           Sign in
         </a>
         {message && <p role="status">{message}</p>}
@@ -756,27 +756,33 @@ export function FieldWorkspace() {
           are encrypted on this device. Keep the passphrase with your recovery
           copy.
         </p>
-        <label className="grid gap-2 text-sm">
-          Device passphrase
-          <Input
-            type="password"
-            minLength={6}
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void unlock();
-            }}
-            autoComplete="off"
-          />
-        </label>
-        <Button onClick={() => void unlock()} disabled={busy || pin.length < 6}>
-          {busy ? "Unlocking…" : "Unlock / prepare device"}
-        </Button>
-        <a href="/login" className="text-sm underline">
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void unlock();
+          }}
+        >
+          <label htmlFor="device-passphrase-offline" className="grid gap-2 text-sm">
+            Device passphrase
+            <Input
+              id="device-passphrase-offline"
+              type="password"
+              minLength={6}
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              autoComplete="current-password"
+            />
+          </label>
+          <Button type="submit" disabled={busy || pin.length < 6}>
+            {busy ? "Unlocking…" : "Unlock device"}
+          </Button>
+        </form>
+        <a href="/login" className="inline-flex min-h-11 items-center text-sm underline">
           Sign in with another account
         </a>
         {message && (
-          <p role="status" className="text-sm">
+          <p role={alertMessage.test(message) ? "alert" : "status"} className="text-sm">
             {message}
           </p>
         )}
@@ -792,24 +798,30 @@ export function FieldWorkspace() {
             devices are listed here. Unlock this device to edit them or start
             a new one while offline.
           </p>
-          <label className="grid gap-2 text-sm">
-            Device passphrase
-            <Input
-              type="password"
-              minLength={6}
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void unlock();
-              }}
-              autoComplete="off"
-            />
-          </label>
-          <Button onClick={() => void unlock()} disabled={busy || pin.length < 6}>
-            {busy ? "Unlocking…" : "Unlock / prepare device"}
-          </Button>
+          <form
+            className="grid gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void unlock();
+            }}
+          >
+            <label htmlFor="device-passphrase" className="grid gap-2 text-sm">
+              Device passphrase
+              <Input
+                id="device-passphrase"
+                type="password"
+                minLength={6}
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                autoComplete="current-password"
+              />
+            </label>
+            <Button type="submit" disabled={busy || pin.length < 6}>
+              {busy ? "Unlocking…" : "Unlock device"}
+            </Button>
+          </form>
           {message && (
-            <p role="status" className="text-sm">
+            <p role={alertMessage.test(message) ? "alert" : "status"} className="text-sm">
               {message}
             </p>
           )}
@@ -1097,7 +1109,7 @@ export function FieldWorkspace() {
                   )}
                   {row.kind !== "legacy-job" && (
                     <a
-                      className="self-center text-sm underline"
+                      className="inline-flex min-h-11 items-center text-sm underline"
                       href={`/api/field/jobs/${row.id}/pdf`}
                       target="_blank"
                       rel="noreferrer"

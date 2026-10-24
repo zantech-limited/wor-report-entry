@@ -25,7 +25,7 @@ export async function POST(request: Request) {
       { error: "Sign in from the Admin page." },
       { status: 403 },
     );
-  if (!mayAttemptLogin())
+  if (!(await mayAttemptLogin()))
     return NextResponse.json(
       { error: "Too many attempts. Wait one minute." },
       { status: 429 },

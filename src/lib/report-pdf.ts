@@ -6,6 +6,7 @@ import {crewNames} from "./crew";
 import {nameKey,type WorkEntry} from "./model";
 import packageInfo from "../../package.json";
 const {version}=packageInfo;
+const regularFontBytes=readFileSync(`${process.cwd()}/templates/fonts/NotoSans-Regular.ttf`);
 
 const ink=rgb(.09,.15,.24),muted=rgb(.35,.4,.47),blue=rgb(.12,.36,.62),pale=rgb(.94,.96,.98),line=rgb(.82,.86,.9),red=rgb(.72,.1,.1);
 const margin=36;
@@ -13,7 +14,7 @@ export async function createMonthlyPdf(allEntries:WorkEntry[],options:MonthlyRep
   const entries=monthlyEntries(allEntries,options);
   if(!entries.length)throw new Error("No work orders match this month and these filters.");
   const analysis=monthlyAnalysis(entries),doc=await PDFDocument.create();doc.registerFontkit(fontkit);
-  const font=await doc.embedFont(readFileSync(`${process.cwd()}/templates/fonts/NotoSans-Regular.ttf`),{subset:true});
+  const font=await doc.embedFont(regularFontBytes,{subset:true});
   const bounds=reportBounds(options);
   const month=options.from?`${bounds.from} to ${bounds.to}`:new Date(`${options.month}-01T12:00:00Z`).toLocaleDateString("en-GB",{month:"long",year:"numeric",timeZone:"UTC"});
   doc.setTitle(`Monthly Service Report — ${month}`);doc.setAuthor("Zantech Limited");doc.setSubject("Field service activity, hours, customers, parts and recorded revenue");

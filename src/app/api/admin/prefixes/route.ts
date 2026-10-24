@@ -1,4 +1,5 @@
 import {legacyAccess} from "@/lib/access";
+import { HttpError, jsonBody } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getReport, listReports, saveReportChecked, whenReady } from "@/lib/db";
@@ -21,7 +22,7 @@ export async function POST(request: Request) {
   const denied = await requireAdmin(request);
   if (denied) return denied;
   try {
-    const body = await request.json();
+    const body = await jsonBody(request, 262144);
     if (
       typeof body.reportId !== "string" ||
       typeof body.prefix !== "string" ||
@@ -61,12 +62,14 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error &&
-          /^(Save conflict:|Enter |That month|Storage migration)/.test(error.message)
+          error instanceof HttpError
             ? error.message
-            : "Could not update the prefix map.",
+            : error instanceof Error &&
+                /^(Save conflict:|Enter |That month|Storage migration)/.test(error.message)
+              ? error.message
+              : "Could not update the prefix map.",
       },
-      { status: error instanceof Error && error.message.startsWith("Save conflict:") ? 409 : 400 },
+      { status: error instanceof HttpError ? error.status : error instanceof Error && error.message.startsWith("Save conflict:") ? 409 : 400 },
     );
   }
 }

@@ -129,7 +129,7 @@ async function main() {
     return match?.[1] || "";
   }
 
-  diagnostics.resetDiagnosticsAttempts();
+  await diagnostics.resetDiagnosticsAttempts();
   clearManaged();
   process.env.DB_PASSWORD = dbPassword;
   process.env.AUTH_SECRET = authSecret;
@@ -146,7 +146,7 @@ async function main() {
   assert.match(pageText, /Production and Preview are separate/);
   assert.equal(pageText.includes(adminToken), false);
 
-  diagnostics.resetDiagnosticsAttempts();
+  await diagnostics.resetDiagnosticsAttempts();
   clearManaged();
   process.env.ADMIN_TOKEN = adminToken;
   const shortAttempt = await call("POST", { action: "unlock", token: "x" });
@@ -156,7 +156,7 @@ async function main() {
   assert.match(shortAttempt.json.error, /incorrect/);
   assert.equal(shortAttempt.text.includes(adminToken), false);
 
-  diagnostics.resetDiagnosticsAttempts();
+  await diagnostics.resetDiagnosticsAttempts();
   clearManaged();
   process.env.ADMIN_TOKEN = adminToken;
   process.env.AUTH_SECRET = authSecret;
@@ -209,7 +209,7 @@ async function main() {
   assert.equal(typeof probe.json.probe.elapsedMs, "number");
   assert.equal(probe.json.probe.error, undefined);
 
-  diagnostics.resetDiagnosticsAttempts();
+  await diagnostics.resetDiagnosticsAttempts();
   clearManaged();
   process.env.VERCEL = "1";
   process.env.ADMIN_TOKEN = adminToken;
@@ -259,7 +259,7 @@ async function main() {
   assert.equal(remoteProbe.json.probe.ok, false);
   assert.match(remoteProbe.json.probe.error, /remote database/);
 
-  diagnostics.resetDiagnosticsAttempts();
+  await diagnostics.resetDiagnosticsAttempts();
   clearManaged();
   process.env.ADMIN_TOKEN = "short-token";
   const shortToken = await call("POST", { action: "unlock", token: "short-token" });
@@ -270,7 +270,7 @@ async function main() {
   assert.equal(tokenStatus.status, "too short");
   assert.equal(shortToken.text.includes("short-token"), false);
 
-  diagnostics.resetDiagnosticsAttempts();
+  await diagnostics.resetDiagnosticsAttempts();
   clearManaged();
   process.env.ADMIN_TOKEN = adminToken;
   process.env.DB_ENGINE = "postgres";
@@ -293,7 +293,7 @@ async function main() {
   assert.equal(redacted.json.report.connection.certificate, "set");
   assert.equal(redacted.text.includes("db.example.test"), false);
 
-  diagnostics.resetDiagnosticsAttempts();
+  await diagnostics.resetDiagnosticsAttempts();
   clearManaged();
   process.env.VERCEL = "1";
   process.env.ADMIN_TOKEN = adminToken;
@@ -316,7 +316,7 @@ async function main() {
     }),
   );
   try {
-    diagnostics.resetDiagnosticsAttempts();
+    await diagnostics.resetDiagnosticsAttempts();
     clearManaged();
     process.env.ADMIN_TOKEN = adminToken;
     const fromFile = await call("POST", { action: "unlock", token: adminToken });
@@ -330,7 +330,7 @@ async function main() {
     unlinkSync(storageFile);
   }
 
-  diagnostics.resetDiagnosticsAttempts();
+  await diagnostics.resetDiagnosticsAttempts();
   clearManaged();
   process.env.ADMIN_TOKEN = adminToken;
   process.env.DB_ENGINE = "postgres";
@@ -360,7 +360,7 @@ async function main() {
   assert.equal(diagnostics.fixedEqual("same-token", "same-token"), true);
   assert.equal(diagnostics.fixedEqual("short", "a-much-longer-token"), false);
 
-  diagnostics.resetDiagnosticsAttempts();
+  await diagnostics.resetDiagnosticsAttempts();
   clearManaged();
   process.env.ADMIN_TOKEN = adminToken;
   const cross = await call(
@@ -371,19 +371,20 @@ async function main() {
   assert.equal(cross.response.status, 403);
   assert.equal("report" in cross.json, false);
 
-  diagnostics.resetDiagnosticsAttempts();
+  await diagnostics.resetDiagnosticsAttempts();
   clearManaged();
   process.env.ADMIN_TOKEN = adminToken;
   for (let attempt = 1; attempt <= 8; attempt += 1) {
     const rejected = await call("POST", { action: "unlock", token: `wrong-${attempt}` });
     assert.equal(rejected.response.status, 401);
   }
+  diagnostics.forgetDiagnosticsMemory();
   const limited = await call("POST", { action: "unlock", token: adminToken });
   assert.equal(limited.response.status, 429);
   assert.equal(limited.response.headers.get("retry-after"), "60");
   assert.equal("report" in limited.json, false);
 
-  diagnostics.resetDiagnosticsAttempts();
+  await diagnostics.resetDiagnosticsAttempts();
   clearManaged();
   process.env.ADMIN_TOKEN = adminToken;
   const allowed = await call("POST", { action: "unlock", token: adminToken });

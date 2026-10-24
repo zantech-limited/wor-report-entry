@@ -10,7 +10,8 @@ export function AccountForm({ setup = false }: { setup?: boolean }) {
     [password, setPassword] = useState(""),
     [token, setToken] = useState(""),
     [busy, setBusy] = useState(false),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [messageRole, setMessageRole] = useState<"status" | "alert">("status");
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get("token")) {
@@ -28,6 +29,7 @@ export function AccountForm({ setup = false }: { setup?: boolean }) {
     event.preventDefault();
     setBusy(true);
     setMessage("");
+    setMessageRole("status");
     try {
       if (setup) {
         await deskApi("/api/setup", { name, email, password, token });
@@ -65,12 +67,14 @@ export function AccountForm({ setup = false }: { setup?: boolean }) {
           await deskApi("/api/identity");
           location.assign("/field");
         } catch {
+          setMessageRole("alert");
           setMessage(
             "Your account is awaiting approval or is inactive. Contact Admin.",
           );
         }
       }
     } catch (error) {
+      setMessageRole("alert");
       setMessage(
         error instanceof Error ? error.message : "Unable to continue.",
       );
@@ -166,7 +170,7 @@ export function AccountForm({ setup = false }: { setup?: boolean }) {
         </Button>
       </form>
       {message && (
-        <p role="status" className="mt-4 rounded-lg border p-3 text-sm">
+        <p role={messageRole} className="mt-4 rounded-lg border p-3 text-sm">
           {message}
         </p>
       )}
@@ -174,7 +178,7 @@ export function AccountForm({ setup = false }: { setup?: boolean }) {
         <div className="mt-5 flex flex-wrap gap-4 text-sm">
           <button
             type="button"
-            className="underline"
+            className="inline-flex min-h-11 items-center underline"
             onClick={() => {
               setMode(mode === "register" ? "signin" : "register");
               setMessage("");
@@ -184,7 +188,7 @@ export function AccountForm({ setup = false }: { setup?: boolean }) {
           </button>
           <button
             type="button"
-            className="underline"
+            className="inline-flex min-h-11 items-center underline"
             onClick={() => {
               setMode(mode === "forgot" ? "signin" : "forgot");
               setMessage("");

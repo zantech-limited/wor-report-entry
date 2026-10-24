@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { HttpError, jsonBody } from "@/lib/http";
 import { requireAdmin } from "@/lib/admin-auth";
 import {
   Storage,
@@ -21,7 +22,7 @@ export async function POST(request: Request) {
   if(process.env.VERCEL)return NextResponse.json({error:"On Vercel, change database settings through deployment environment variables and redeploy."},{status:409});
   try {
     assertWritable();
-    const body = await request.json();
+    const body = await jsonBody(request, 262144);
     const existing = readConfig();
     const config = validateConfig({
       ...body.config,
@@ -74,6 +75,8 @@ export async function POST(request: Request) {
   } catch (error) {
     // Driver errors may contain credentials or connection details; never return them.
     logEvent("storage.error", "A storage operation failed.", "error");
+    if (error instanceof HttpError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     const message =
       error instanceof Error &&
       /^(The destination|Migration verification|To return|Storage |Use Test|Host,|Port |Choose |Invalid |Enter |Database identifier|Shared connection|Supabase requires)/.test(

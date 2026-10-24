@@ -1,4 +1,5 @@
 import {legacyAccess} from "@/lib/access";
+import { HttpError, jsonBody } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { listTechnicians, saveTechnician } from "@/lib/technicians";
@@ -12,18 +13,20 @@ export async function POST(request: Request) {
   const denied = await requireAdmin(request);
   if (denied) return denied;
   try {
-    await saveTechnician(await request.json());
+    await saveTechnician(await jsonBody(request, 262144));
     return NextResponse.json({ technicians: await listTechnicians() });
   } catch (error) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error &&
-          /^(Enter |Invalid |Storage migration)/.test(error.message)
+          error instanceof HttpError
             ? error.message
-            : "Could not update technicians.",
+            : error instanceof Error &&
+                /^(Enter |Invalid |Storage migration)/.test(error.message)
+              ? error.message
+              : "Could not update technicians.",
       },
-      { status: 400 },
+      { status: error instanceof HttpError ? error.status : 400 },
     );
   }
 }

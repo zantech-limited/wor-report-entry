@@ -1,5 +1,5 @@
 import { database } from "./storage";
-import { records, record, updateRecord } from "./records";
+import { recordsWhere, record, updateRecord } from "./records";
 import { sendSmtp } from "./smtp";
 import { customerPdf } from "./customer-pdf";
 import type { CustomerSnapshot } from "./field-model";
@@ -18,10 +18,9 @@ type Delivery = {
 export async function processMailQueue(limit = 2) {
   const db = await database(),
     candidates = [
-      ...(await records<Delivery>("customer-mail")),
-      ...(await records<Delivery>("account-mail")),
+      ...(await recordsWhere<Delivery>("customer-mail", "state", ["queued", "sending"])),
+      ...(await recordsWhere<Delivery>("account-mail", "state", ["queued", "sending"])),
     ]
-      .filter((row) => ["queued", "sending"].includes(row.data.state))
       .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
       .slice(0, limit),
     results = [];
