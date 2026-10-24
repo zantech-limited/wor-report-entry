@@ -15,6 +15,7 @@ import {
 import {
   CONTACT_FIELDS,
   FORM_OPTIONS,
+  canonicalSnapshot,
   customerSnapshot,
   emptyFields,
   validSignature,
@@ -39,13 +40,29 @@ import { crewIncludes, crewNames } from "./crew";
 import { linkedTechnicianIdentities } from "./technician-identity";
 import { withFieldProjection } from "./field-projection-context";
 
+export function seesAllWorkOrders(role: string) {
+  return role === "admin" || role === "manager" || role === "supervisor";
+}
 export function canSeeJob(actor: Actor, row: DeskRecord<FieldJob>) {
-  return actor.role !== "tech" || row.data.assignedIds.includes(actor.id);
+  return (
+    seesAllWorkOrders(actor.role) || row.data.assignedIds.includes(actor.id)
+  );
 }
 export function hashSnapshot(job: FieldJob) {
   return createHash("sha256")
+    .update(JSON.stringify(canonicalSnapshot(job)))
+    .digest("hex");
+}
+/** Hash used by clients that signed before the canonical snapshot. */
+export function legacyHashSnapshot(job: FieldJob) {
+  return createHash("sha256")
     .update(JSON.stringify(customerSnapshot(job)))
     .digest("hex");
+}
+export function signedContentMatches(hash: string | undefined, job: FieldJob) {
+  return (
+    !!hash && (hash === hashSnapshot(job) || hash === legacyHashSnapshot(job))
+  );
 }
 export async function assignedUsers(ids: string[]) {
   if (
@@ -145,6 +162,39 @@ export function validateFieldJob(value: unknown): asserts value is FieldJob {
     (typeof job.savedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(job.savedAt))
   )
     throw new Error("Invalid save time.");
+  if (
+    job.amendmentReason !== undefined &&
+    (typeof job.amendmentReason !== "string" || job.amendmentReason.length > 1000)
+  )
+    throw new Error("Describe the reason for this amendment.");
+}
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.keys(value as object)
+        .sort()
+        .map((key) => [
+          key,
+          stableValue((value as Record<string, unknown>)[key]),
+        ]),
+    );
+  return value ?? null;
+}
+function stableJob(job: FieldJob) {
+  const line = {
+    ...job.line,
+    no: "",
+    additionalTechs: job.line.additionalTechs ?? [],
+  };
+  return stableValue({
+    line,
+    fields: job.fields,
+    assignedIds: job.assignedIds,
+    scheduleId: job.scheduleId || "",
+    signature: job.signature ?? null,
+    technicianSignature: job.technicianSignature ?? null,
+  });
 }
 export async function saveFieldJob(
   actor: Actor,
@@ -243,13 +293,22 @@ export async function saveFieldJob(
         throw new Error("Include the scheduled technicians.");
       await updateRecord(schedule, { ...schedule.data, jobId: id });
     }
+    const printedName = input.fields.completedByName.trim();
+    // A signed upload must keep the crew the customer reviewed. Directory names
+    // fill blanks only on an unsigned draft, before anyone signs that version.
     const line: WorkOrder = {
       ...blankLine(),
       ...input.line,
       id,
-      technician: users[0].name,
-      secondaryTech: users[1]?.name || "",
-      additionalTechs: users.slice(2).map((user) => user.name),
+      technician: submit
+        ? input.line.technician
+        : printedName || input.line.technician.trim() || users[0].name,
+      secondaryTech: submit
+        ? input.line.secondaryTech
+        : users[1]?.name || "",
+      additionalTechs: submit
+        ? input.line.additionalTechs
+        : users.slice(2).map((user) => user.name),
     };
     if (!line.wor.trim()) {
       if (submit)
@@ -275,11 +334,15 @@ export async function saveFieldJob(
       technicianSignature: input.technicianSignature,
       savedOn: input.savedOn,
       savedAt: input.savedAt,
+      amendmentReason: previous?.data.amendmentReason,
+      amendedBy: previous?.data.amendedBy,
+      amendedAt: previous?.data.amendedAt,
     };
-    const digest = hashSnapshot(data),
-      oldDigest = previous ? hashSnapshot(previous.data) : "";
+    const digest = hashSnapshot(data);
     const changedAfterSigning =
-      !!previous?.data.signedHash && digest !== previous.data.signedHash;
+      !!previous?.data.signedHash &&
+      JSON.stringify(canonicalSnapshot(data)) !==
+        JSON.stringify(canonicalSnapshot(previous.data));
     const freshSignature =
       !!data.signature &&
       JSON.stringify(data.signature) !==
@@ -287,16 +350,6 @@ export async function saveFieldJob(
     if (changedAfterSigning && !freshSignature) {
       data.signature = undefined;
       data.state = "amended";
-    }
-    if (
-      actor.role === "admin" &&
-      previous &&
-      previous.data.state !== "draft" &&
-      digest !== oldDigest
-    ) {
-      if (!input.amendmentReason?.trim() || input.amendmentReason.length > 1000)
-        throw new Error("Describe the reason for this amendment.");
-      data.amendmentReason = input.amendmentReason.trim();
     }
     if (submit) {
       if (!line.customer.trim())
@@ -326,7 +379,13 @@ export async function saveFieldJob(
         throw new Error(
           "Complete the work details, names, customer signature, approval date and customer email before submitting.",
         );
-      if (input.signedHash !== digest)
+      const sameAsSigned =
+        JSON.stringify(canonicalSnapshot(data)) ===
+        JSON.stringify(canonicalSnapshot(input));
+      if (
+        !signedContentMatches(input.signedHash, data) &&
+        !(sameAsSigned && signedContentMatches(input.signedHash, input))
+      )
         throw new Error(
           "The signed preview changed. Review and sign this version again.",
         );
@@ -391,6 +450,19 @@ export async function saveFieldJob(
     const index = target.lines.findIndex((row) => row.id === id);
     line.no = index >= 0 ? target.lines[index].no : nextLineNo(target.lines);
     data.reportId = target.id;
+    const contentOf = (job: FieldJob) => JSON.stringify(stableJob(job));
+    const amending =
+      !!previous &&
+      previous.data.state !== "draft" &&
+      contentOf(previous.data) !== contentOf(data);
+    if (amending) {
+      const reason = input.amendmentReason?.trim() || "";
+      if (!reason || reason.length > 1000)
+        throw new Error("Describe the reason for this amendment.");
+      data.amendmentReason = reason;
+      data.amendedBy = actor.name;
+      data.amendedAt = new Date().toISOString();
+    }
     if (index >= 0) target.lines[index] = line;
     else
       target.lines = [
@@ -407,15 +479,20 @@ export async function saveFieldJob(
     if (previous)
       await insertRecord("job-history", previous.ownerId, {
         jobId: id,
-        revision: previous.revision,
+        revision: saved.revision,
         snapshot: previous.data,
         actor: actor.id,
+        actorName: actor.name,
+        at: data.amendedAt || new Date().toISOString(),
+        reason: amending ? data.amendmentReason || "" : "",
       });
     await insertRecord("audit", actor.id, {
       action: previous ? "job.updated" : "job.created",
       jobId: id,
       revision: saved.revision,
-      reason: data.amendmentReason || "",
+      reason: amending ? data.amendmentReason || "" : "",
+      actorName: actor.name,
+      at: data.amendedAt || new Date().toISOString(),
     });
     if (actor.role === "admin" && previous)
       for (const user of new Set([
@@ -466,7 +543,8 @@ export async function visibleJobs(actor: Actor, month: string) {
       if (
         known.has(line.id) ||
         !line.date.startsWith(month) ||
-        (actor.role === "tech" && !crewIncludes(line, actor.technicianName))
+        (!seesAllWorkOrders(actor.role) &&
+          !crewIncludes(line, actor.technicianName))
       )
         continue;
       const ids = crewNames(line)

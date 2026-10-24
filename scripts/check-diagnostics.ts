@@ -184,6 +184,14 @@ async function main() {
   assert.equal(unlocked.json.report.runtime.commit, "54e2a08abcde");
   assert.equal(unlocked.json.report.runtime.ref, "main");
   assert.equal(unlocked.json.report.runtime.region, "iad1");
+  assert.equal(unlocked.json.debug.template, "present");
+  assert.match(unlocked.json.debug.serviceWorker, /^zantech-shell-v\d+$/);
+  assert.equal(unlocked.json.debug.version, unlocked.json.report.runtime.version);
+  assert.ok(["missing", "unavailable", "set"].includes(unlocked.json.debug.mail.password));
+  assert.ok(["missing", "unavailable", "set"].includes(unlocked.json.debug.mail.host));
+  assert.ok(
+    ["ready", "not signed in", "database unavailable"].includes(unlocked.json.debug.account.status),
+  );
   const names = unlocked.json.report.environment.map((item: { name: string }) => item.name);
   for (const name of ["APP_URL", "AUTH_SECRET", "ADMIN_TOKEN", "DB_ENGINE", "DB_PASSWORD", "DB_TLS"]) {
     assert.ok(names.includes(name), name);
@@ -210,6 +218,8 @@ async function main() {
   process.env.DB_PASSWORD = dbPassword;
   process.env.DB_TLS = "yes";
   process.env.DB_PORT = "not-a-port";
+  const { rememberDeskEvent } = await import("../src/lib/desk-log");
+  rememberDeskEvent("upload", new Error(`Upload failed for password=${dbPassword}`));
   const remote = await call("POST", { action: "unlock", token: adminToken });
   assert.equal(remote.response.status, 200);
   assert.match(remote.response.headers.get("set-cookie") || "", /Secure/i);
@@ -224,6 +234,25 @@ async function main() {
   assert.equal(tls.status, "invalid");
   assert.equal(port.status, "invalid");
   assert.equal(remote.json.report.connection.port, "invalid");
+  assert.equal(remote.json.debug.database.ok, false);
+  assert.ok(
+    ["database unavailable", "not signed in"].includes(remote.json.debug.account.status),
+  );
+  const debugDesk = await import("../src/lib/debug-desk");
+  const databaseDown = await debugDesk.debugDesk(null, "unavailable");
+  assert.equal(databaseDown.account.status, "database unavailable");
+  assert.equal(databaseDown.template, "present");
+  assert.equal(JSON.stringify(databaseDown).includes(dbPassword), false);
+  assert.equal(remote.json.debug.template, "present");
+  assert.match(remote.json.debug.serviceWorker, /zantech-shell-v/);
+  const uploadEvent = remote.json.debug.events.find(
+    (item: { kind: string }) => item.kind === "upload",
+  );
+  assert.ok(uploadEvent);
+  assert.match(uploadEvent.message, /\[redacted\]/);
+  assert.equal(uploadEvent.reference.length, 8);
+  assert.equal(remote.text.includes(dbPassword), false);
+  assert.equal(remote.text.includes(dbUser), false);
   const remoteProbe = await call("POST", { action: "test" }, {
     cookie: `desk-diagnostics=${cookie(remote.response)}`,
   });

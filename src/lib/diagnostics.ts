@@ -288,6 +288,12 @@ export function sanitizeDiagnosticError(error: unknown) {
     .filter((value) => value.length >= 4)
     .sort((a, b) => b.length - a.length);
   for (const secret of secrets) text = text.split(secret).join("[redacted]");
+  const host = envValue("DB_HOST");
+  if (host.length >= 4) text = text.split(host).join("[redacted]");
+  const embeddedHost = host.includes("@")
+    ? host.slice(host.lastIndexOf("@") + 1).split(/[/:?]/)[0]
+    : "";
+  if (embeddedHost.length >= 4) text = text.split(embeddedHost).join("[redacted]");
   text = text.replace(/[\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim();
   if (!text) text = "The database connection failed.";
   if (text.length > 500) text = `${text.slice(0, 500)}…`;

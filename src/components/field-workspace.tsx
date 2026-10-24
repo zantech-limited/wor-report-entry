@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { deskApi, todayLocal } from "@/lib/client-api";
+import { currentDeskMonth, deskMonthLabel, shiftDeskMonth } from "@/lib/desk-month";
 import {
   emptyJob,
+  needsAmendmentReason,
   type FieldJob,
   type Schedule,
   type Alert,
@@ -23,12 +25,67 @@ import { FieldJobEditor, type TechnicianOption } from "./field-job-editor";
 import { CustomerFormPreview } from "./customer-form-preview";
 import { DraftConflict } from "./draft-conflict";
 import { FieldTeam } from "./field-team";
+import { DeskDebugPanel } from "./desk-debug-panel";
+import { onDraftFlush } from "@/lib/app-update";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 type Identity = { actor: Actor; database: string };
 const control = "min-h-11 rounded-lg border bg-background px-3 py-2 text-base";
 const alertMessage =
   /fail|could not|conflict|error|invalid|offline|unavailable|sign in/i;
+function WorkMonthNav({
+  month,
+  onMonth,
+  count,
+  busy,
+  role,
+}: {
+  month: string;
+  onMonth: (month: string) => void;
+  count: number;
+  busy: boolean;
+  role: string;
+}) {
+  const current = currentDeskMonth();
+  const label = deskMonthLabel(month);
+  const scope =
+    role === "tech"
+      ? "You see work orders assigned to you."
+      : "You see every technician's work orders.";
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Work month">
+        <Button type="button" variant="outline" onClick={() => onMonth(shiftDeskMonth(month, -1))}>
+          Previous
+        </Button>
+        <h2 className="min-w-44 text-center text-lg font-semibold">{label}</h2>
+        <Button type="button" variant="outline" onClick={() => onMonth(shiftDeskMonth(month, 1))}>
+          Next
+        </Button>
+        <Button
+          type="button"
+          variant={month === current ? "default" : "outline"}
+          aria-pressed={month === current}
+          onClick={() => onMonth(current)}
+        >
+          This month
+        </Button>
+        <Input
+          type="month"
+          aria-label="Jump to month"
+          value={month}
+          onChange={(event) => {
+            if (/^\d{4}-(0[1-9]|1[0-2])$/.test(event.target.value))
+              onMonth(event.target.value);
+          }}
+        />
+      </div>
+      <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
+        {busy ? "Loading work orders…" : `${count} work orders in ${label}. ${scope}`}
+      </p>
+    </div>
+  );
+}
 function deviceLabel() {
   const stored = localStorage.getItem("zantech-device-label");
   if (stored) return stored;
@@ -48,7 +105,7 @@ export function FieldWorkspace() {
   const [identity, setIdentity] = useState<Identity>(),
     [key, setKey] = useState<CryptoKey>(),
     [pin, setPin] = useState(""),
-    [month, setMonth] = useState(todayLocal().slice(0, 7)),
+    [month, setMonth] = useState(currentDeskMonth),
     [online, setOnline] = useState(true),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
@@ -74,6 +131,48 @@ export function FieldWorkspace() {
   const current = useRef<LocalDraft | undefined>(undefined),
     lastActivity = useRef(Date.now()),
     context = identity ? `${identity.database}:${identity.actor.id}` : "";
+  const persistRef = useRef<(draft: LocalDraft) => Promise<void>>(
+    async () => {},
+  );
+  const uploadRef = useRef<
+    (draft: LocalDraft, background?: boolean) => Promise<void>
+  >(async () => {});
+  const keyRef = useRef(key);
+  const contextRef = useRef(context);
+  keyRef.current = key;
+  contextRef.current = context;
+  useEffect(() => {
+    return onDraftFlush(async () => {
+      const vaultKey = keyRef.current;
+      const vaultContext = contextRef.current;
+      if (!vaultKey || !vaultContext) return;
+      const live = current.current;
+      if (live) {
+        try {
+          await persistRef.current(live);
+        } catch {
+          /* A failed device save must not skip drafts already stored in the vault. */
+        }
+      }
+      if (!navigator.onLine) return;
+      const pending = await vaultDrafts(vaultContext, vaultKey);
+      for (const draft of pending) {
+        if (
+          draft.submit ||
+          draft.conflict ||
+          !draft.job.line.date ||
+          !draft.job.assignedIds.every(Boolean) ||
+          (needsAmendmentReason(draft.job) && !draft.job.amendmentReason?.trim())
+        )
+          continue;
+        const started = Date.now();
+        while (uploading.current && Date.now() - started < 7000)
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        if (uploading.current) return;
+        await uploadRef.current(draft, true);
+      }
+    });
+  }, []);
   useEffect(() => {
     function connection() {
       setOnline(navigator.onLine);
@@ -279,6 +378,7 @@ export function FieldWorkspace() {
       );
     }
   }
+  persistRef.current = persist;
   function edit(job: FieldJob) {
     const previous = current.current;
     if (!previous) return;
@@ -313,10 +413,13 @@ export function FieldWorkspace() {
     const names = job.assignedIds.map(
       (user) => users.find((value) => value.id === user)?.technician || "",
     );
-    job.line.technician = names[0] || identity.actor.technicianName;
+    job.fields.completedByName = identity.actor.name;
+    job.line.technician =
+      job.fields.completedByName.trim() ||
+      names[0] ||
+      identity.actor.technicianName;
     job.line.secondaryTech = names[1] || "";
     job.line.additionalTechs = names.slice(2);
-    job.fields.completedByName = identity.actor.name;
     job.fields.completedByDesignation = "Technician";
     job.fields.startedDate = job.line.date;
     job.fields.completedDate = job.line.date;
@@ -339,6 +442,15 @@ export function FieldWorkspace() {
     setTab("entry");
   }
   async function upload(draft: LocalDraft, background = false) {
+    if (
+      needsAmendmentReason(draft.job) &&
+      !draft.job.amendmentReason?.trim()
+    ) {
+      if (!background)
+        setMessage("Describe the reason for this amendment.");
+      return;
+    }
+    const job = draft.job;
     if (uploading.current || !key) return;
     uploading.current = true;
     if (!navigator.onLine) {
@@ -356,7 +468,7 @@ export function FieldWorkspace() {
         mail?: { state: string; error?: string };
       }>("/api/field/jobs", {
         id: draft.id,
-        job: draft.job,
+        job,
         revision: draft.revision,
         operationId: draft.operationId,
         submit: draft.submit,
@@ -477,7 +589,12 @@ export function FieldWorkspace() {
     } catch (error) {
       const text = (error as Error).message;
       const status = (error as { status?: number }).status;
-      setMessage(text);
+      const reference = (error as { reference?: string }).reference;
+      setMessage(
+        reference && /^[a-f0-9]{8}$/.test(reference)
+          ? `${text} Support reference: ${reference}.`
+          : text,
+      );
       if (status === 409) {
         const latest =
           current.current?.id === draft.id ? current.current : draft;
@@ -498,6 +615,7 @@ export function FieldWorkspace() {
       setUploadBusy(false);
     }
   }
+  uploadRef.current = upload;
   useEffect(() => {
     if (!key || !online || uploadBusy || unsaved.current) return;
     const draft = drafts.find(
@@ -505,7 +623,8 @@ export function FieldWorkspace() {
         !d.submit &&
         !d.conflict &&
         d.job.line.date &&
-        d.job.assignedIds.every(Boolean),
+        d.job.assignedIds.every(Boolean) &&
+        (!needsAmendmentReason(d.job) || !!d.job.amendmentReason?.trim()),
     );
     if (!draft) return;
     syncTimer.current = setTimeout(() => void upload(draft, true), 2000);
@@ -665,9 +784,13 @@ export function FieldWorkspace() {
             </p>
           )}
         </div>
-        <p className="text-sm text-muted-foreground" role="status">
-          {`${jobs.length} work orders in this month.`}
-        </p>
+        <WorkMonthNav
+          month={month}
+          onMonth={setMonth}
+          count={jobs.length}
+          busy={false}
+          role={identity.actor.role}
+        />
         <div className="grid gap-3 sm:grid-cols-2">
           {jobs.map((row) => (
             <article key={row.id} className="grid gap-2 rounded-xl border bg-card p-4">
@@ -787,12 +910,17 @@ export function FieldWorkspace() {
         aria-label="Field workspace"
       >
         {[
-          ["jobs", "My work orders"],
+          ["jobs", identity.actor.role === "tech" ? "My work orders" : "Work orders"],
           ["entry", "Entry"],
           ["uploads", `Review uploads (${drafts.length})`],
           ["schedules", "Schedule"],
           ["alerts", `Alerts (${unread.length})`],
-          ...(identity.actor.role === "admin" ? [["team", "Team & SMTP"]] : []),
+          ...(identity.actor.role === "admin"
+            ? [
+                ["team", "Team & SMTP"],
+                ["debugging", "Debugging"],
+              ]
+            : []),
         ].map(([value, label]) => (
           <Button
             key={value}
@@ -814,17 +942,20 @@ export function FieldWorkspace() {
       {tab === "jobs" && (
         <section className="grid gap-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <label className="grid gap-1 text-sm">
-              Work month
-              <Input
-                type="month"
-                value={month}
-                onChange={(e) => {
-                  if (/^\d{4}-\d{2}$/.test(e.target.value))
-                    setMonth(e.target.value);
-                }}
-              />
-            </label>
+            <WorkMonthNav
+              month={month}
+              onMonth={setMonth}
+              count={
+                jobs.length +
+                drafts.filter(
+                  (draft) =>
+                    draft.job.line.date.startsWith(month) &&
+                    !jobs.some((row) => row.id === draft.id),
+                ).length
+              }
+              busy={busy}
+              role={identity.actor.role}
+            />
             <div className="flex gap-2">
               <Button
                 variant="outline"
@@ -838,11 +969,6 @@ export function FieldWorkspace() {
               )}
             </div>
           </div>
-          <p className="text-sm text-muted-foreground" role="status">
-            {busy
-              ? "Loading work orders…"
-              : `${jobs.length} work orders in this month. Shared jobs appear for every assigned technician.`}
-          </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {drafts
               .filter(
@@ -893,13 +1019,23 @@ export function FieldWorkspace() {
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {[
-                    row.data.line.technician,
+                    row.data.line.technician || row.data.fields.completedByName,
                     row.data.line.secondaryTech,
                     ...(row.data.line.additionalTechs || []),
                   ]
                     .filter(Boolean)
                     .join(", ")}
                 </p>
+                {identity.actor.role === "admin" &&
+                  row.data.amendmentReason && (
+                    <p className="text-xs">
+                      Amendment: {row.data.amendmentReason}
+                      {row.data.amendedBy ? ` · ${row.data.amendedBy}` : ""}
+                      {row.data.amendedAt
+                        ? ` · ${new Date(row.data.amendedAt).toLocaleString()}`
+                        : ""}
+                    </p>
+                  )}
                 <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={() => setPreview(row)}>
                     View form
@@ -1153,6 +1289,7 @@ export function FieldWorkspace() {
         </section>
       )}
       {tab === "team" && identity.actor.role === "admin" && <FieldTeam />}
+      {tab === "debugging" && identity.actor.role === "admin" && <DeskDebugPanel />}
       {preview && (
         <div
           role="dialog"
@@ -1177,7 +1314,10 @@ export function FieldWorkspace() {
             </Button>
             <CustomerFormPreview job={preview.data} />
             {preview.kind !== "legacy-job" && (
-              <JobRevisionLinks id={preview.id} />
+              <JobRevisionLinks
+                id={preview.id}
+                showAmendments={identity.actor.role === "admin"}
+              />
             )}
           </div>
         </div>
@@ -1367,14 +1507,27 @@ function AlertCreator({ users }: { users: TechnicianOption[] }) {
   );
 }
 
-function JobRevisionLinks({ id }: { id: string }) {
+function JobRevisionLinks({
+  id,
+  showAmendments,
+}: {
+  id: string;
+  showAmendments: boolean;
+}) {
   const [data, setData] = useState<{
     signed: { id: string; signedAt: string }[];
+    amendments?: {
+      time: string;
+      revision: number;
+      reason: string;
+      actorName: string;
+    }[];
     events: {
       time: string;
       revision: number;
       reason: string;
       action: string;
+      actorName?: string;
     }[];
   }>({ signed: [], events: [] });
   useEffect(() => {
@@ -1382,6 +1535,17 @@ function JobRevisionLinks({ id }: { id: string }) {
       .then(setData)
       .catch(() => {});
   }, [id]);
+  const amendments =
+    data.amendments?.length
+      ? data.amendments
+      : data.events
+          .filter((row) => row.reason)
+          .map((row) => ({
+            time: row.time,
+            revision: row.revision,
+            reason: row.reason,
+            actorName: row.actorName || "",
+          }));
   return (
     <section className="my-5 grid gap-3">
       <h3 className="font-semibold">Signed copies and changes</h3>
@@ -1396,11 +1560,16 @@ function JobRevisionLinks({ id }: { id: string }) {
           Signed copy · {new Date(row.signedAt).toLocaleString()}
         </a>
       ))}
-      {data.events.map((row, i) => (
-        <p key={i} className="text-xs text-muted-foreground">
-          Revision {row.revision} · {row.time} · {row.reason || row.action}
-        </p>
-      ))}
+      {showAmendments &&
+        amendments.map((row, i) => (
+          <p key={i} className="text-sm">
+            Revision {row.revision} · {row.actorName || "Team member"} ·{" "}
+            {new Date(row.time).toLocaleString()} · {row.reason}
+          </p>
+        ))}
+      {showAmendments && !amendments.length && (
+        <p className="text-xs text-muted-foreground">No amendments yet.</p>
+      )}
     </section>
   );
 }

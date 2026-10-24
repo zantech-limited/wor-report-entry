@@ -23,7 +23,13 @@ export async function readJsonResponse(response: Response) {
           body?.message ||
           "The operation could not be completed.",
       ),
-      { status: response.status },
+      {
+        status: response.status,
+        reference:
+          typeof body?.reference === "string" && /^[a-f0-9]{8}$/.test(body.reference)
+            ? body.reference
+            : undefined,
+      },
     );
   return body;
 }

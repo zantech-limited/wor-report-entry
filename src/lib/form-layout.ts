@@ -382,8 +382,10 @@ export function formValue(
       !["Cash", "Charge"].includes(job.fields.serviceOption || "")
       ? "NO CHARGE"
       : "";
-  if (field.source === "crew")
-    return crewNames(job.line as WorkOrder).join(", ");
+  if (field.source === "crew") {
+    const names = crewNames(job.line as WorkOrder);
+    return names.length ? names.join(", ") : job.fields.completedByName.trim();
+  }
   if (field.source === "fields")
     return (
       job.fields[field.key as keyof ContactFields] ||
