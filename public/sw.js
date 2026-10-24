@@ -1,4 +1,4 @@
-const CACHE = "zantech-shell-v062";
+const CACHE = "zantech-shell-v063";
 async function cacheEach(cache, urls) {
   await Promise.all(
     urls.map(async (url) => {

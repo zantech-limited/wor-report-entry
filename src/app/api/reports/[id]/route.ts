@@ -1,4 +1,5 @@
 import {legacyAccess} from "@/lib/access";
+import { HttpError, jsonBody } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { deleteReport, getReport, saveReportChecked } from "@/lib/db";
 import type { Report } from "@/lib/model";
@@ -25,11 +26,13 @@ export async function PUT(
   const accessDenied=await legacyAccess(request,["admin"]);if(accessDenied)return accessDenied;
   const { id } = await context.params;
   try {
-    const body = (await request.json()) as Report;
+    const body = (await jsonBody(request, 8_000_000)) as Report;
     const result = await saveReportChecked(id, body,
       new URL(request.url).searchParams.get("suggestions") === "if-changed" ? "when-changed" : "always");
     return NextResponse.json({ saved: true, ...result });
   } catch (cause) {
+    if (cause instanceof HttpError)
+      return NextResponse.json({ error: cause.message }, { status: cause.status });
     logEvent("report.save_failed", "A report could not be saved.", "error");
     const message = cause instanceof Error && /^(Recovery snapshot|Save conflict:|That report|Invalid |Report exceeds|Work orders|Storage migration|customer must|location must|technician must|secondaryTech must)/.test(cause.message) ? cause.message : "Could not save the report. Check the storage connection and try again.";
     const status = message.startsWith("Save conflict:") ? 409 : message.includes("no longer saved") ? 404 : 400;

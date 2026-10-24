@@ -4,6 +4,7 @@ import { equalSecret } from "../src/lib/admin-auth";
 import { clientErrorMessage } from "../src/lib/http";
 import { flushDeviceDrafts, onDraftFlush } from "../src/lib/app-update";
 import { deploymentCheck } from "../src/lib/startup-env";
+import { safeMailHeader } from "../src/lib/mail-header";
 
 const keys = [
   "VERCEL",
@@ -76,8 +77,11 @@ try {
     ),
     "This workbook has no Master sheet.",
   );
+  assert.equal(safeMailHeader("WO 1042\r\nBcc: attacker@example.test"), "WO 1042 Bcc: attacker@example.test");
+  assert.equal(safeMailHeader("  Zantech\twork order  "), "Zantech work order");
+  assert.equal(safeMailHeader(""), "");
   const worker = readFileSync("public/sw.js", "utf8");
-  assert.match(worker, /zantech-shell-v062/);
+  assert.match(worker, /zantech-shell-v063/);
   assert.match(worker, /cacheEach/);
   assert.match(worker, /SKIP_WAITING/);
   const setup = readFileSync("src/components/pwa-setup.tsx", "utf8");

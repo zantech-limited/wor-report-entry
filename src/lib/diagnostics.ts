@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { allowAttempt, forgetAttemptMemory, resetAttemptBuckets } from "./attempt-limit";
 import packageInfo from "../../package.json";
 import { readConfig, Storage, type StorageConfig } from "./storage";
 import type {
@@ -107,29 +108,22 @@ export function diagnosticsCookieOptions(request: Request) {
   };
 }
 
-const attempts = new Map<string, { count: number; until: number }>();
+const diagnosticsBuckets = ["diagnostics-auth", "diagnostics-probe"] as const;
 
-export function resetDiagnosticsAttempts() {
-  attempts.clear();
+export function forgetDiagnosticsMemory() {
+  forgetAttemptMemory();
 }
 
-function allow(key: string, limit: number) {
-  const now = Date.now();
-  const entry = attempts.get(key);
-  if (!entry || entry.until < now) {
-    attempts.set(key, { count: 1, until: now + 60_000 });
-    return true;
-  }
-  entry.count += 1;
-  return entry.count <= limit;
+export async function resetDiagnosticsAttempts() {
+  await resetAttemptBuckets([...diagnosticsBuckets]);
 }
 
 export function mayAttemptDiagnosticsAuth() {
-  return allow("auth", 8);
+  return allowAttempt("diagnostics-auth", 8);
 }
 
 export function mayAttemptDiagnosticsProbe() {
-  return allow("probe", 10);
+  return allowAttempt("diagnostics-probe", 10);
 }
 
 function envStatus(name: string): EnvStatus {

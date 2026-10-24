@@ -11,6 +11,15 @@ import {
   FORM_WIDTH,
   FORM_HEIGHT,
 } from "./form-layout";
+const regularFontBytes = readFileSync(
+  `${process.cwd()}/templates/fonts/NotoSans-Regular.ttf`,
+);
+const boldFontBytes = readFileSync(
+  `${process.cwd()}/templates/fonts/NotoSans-Bold.ttf`,
+);
+const backgroundBytes = readFileSync(
+  `${process.cwd()}/public/work-order-template.png`,
+);
 export async function customerPdf(
   snapshot: CustomerSnapshot,
   { approved = false }: { approved?: boolean } = {},
@@ -18,17 +27,9 @@ export async function customerPdf(
   const { layout } = await readFormLayout();
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
-  const font = await doc.embedFont(
-    readFileSync(`${process.cwd()}/templates/fonts/NotoSans-Regular.ttf`),
-    { subset: true },
-  );
-  const bold = await doc.embedFont(
-    readFileSync(`${process.cwd()}/templates/fonts/NotoSans-Bold.ttf`),
-    { subset: true },
-  );
-  const background = await doc.embedPng(
-    readFileSync(`${process.cwd()}/public/work-order-template.png`),
-  );
+  const font = await doc.embedFont(regularFontBytes, { subset: true });
+  const bold = await doc.embedFont(boldFontBytes, { subset: true });
+  const background = await doc.embedPng(backgroundBytes);
   const scale = 595.28 / FORM_WIDTH,
     height = FORM_HEIGHT * scale;
   const page = doc.addPage([595.28, height]);

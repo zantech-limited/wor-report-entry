@@ -16,7 +16,8 @@ import {
 import { currentDeskMonth, deskMonthLabel, shiftDeskMonth } from "../src/lib/desk-month";
 import { linkedTechnicianIdentities } from "../src/lib/technician-identity";
 import { processMailQueue } from "../src/lib/mail-queue";
-import { record, records } from "../src/lib/records";
+import { record, records, recordsWhere } from "../src/lib/records";
+import { allowAttempt, forgetAttemptMemory, resetAttemptBuckets } from "../src/lib/attempt-limit";
 import { withAccountMail } from "../src/lib/smtp";
 
 async function main() {
@@ -71,6 +72,21 @@ async function main() {
   namedPreview.fields.completedByName = "Timothy Adams";
   assert.equal(formValue(namedPreview, techField), "Timothy Adams");
   const db = await database();
+  await resetAttemptBuckets(["audit-window"]);
+  assert.equal(await allowAttempt("audit-window", 2), true);
+  assert.equal(await allowAttempt("audit-window", 2), true);
+  forgetAttemptMemory();
+  assert.equal(await allowAttempt("audit-window", 2), false);
+  await db.query(
+    "INSERT INTO desk_records (id,kind,owner_id,revision,data,updated_at) VALUES (?,?,?,1,?,?)",
+    ["signed-a", "signed", "owner", JSON.stringify({ jobId: "job-a", signedAt: "2026-10-24T00:00:00.000Z" }), "2026-10-24T00:00:00.000Z"],
+  );
+  await db.query(
+    "INSERT INTO desk_records (id,kind,owner_id,revision,data,updated_at) VALUES (?,?,?,1,?,?)",
+    ["signed-b", "signed", "owner", JSON.stringify({ jobId: "job-b", signedAt: "2026-10-24T00:00:00.000Z" }), "2026-10-24T00:00:01.000Z"],
+  );
+  const matched = await recordsWhere<{ jobId: string }>("signed", "jobId", ["job-a"]);
+  assert.deepEqual(matched.map((row) => row.id), ["signed-a"]);
   await (await getMigrations(auth().options)).runMigrations();
   await db.query("INSERT INTO meta (key,value) VALUES (?,?)", ["accounts-ready", "1"]);
   const created = await withAccountMail(() =>
@@ -282,7 +298,7 @@ async function main() {
   assert.equal(JSON.stringify(debug).includes(actor.email), false);
   assert.ok(debug.devices.some((row) => row.device === "computer abcd" && row.count >= 1));
   assert.ok(debug.events.some((row) => row.kind === "review" && /signed preview/.test(row.message) && row.reference.length === 8));
-  assert.match(debug.serviceWorker, /zantech-shell-v062/);
+  assert.match(debug.serviceWorker, /zantech-shell-v063/);
   assert.equal(debug.template, "present");
   console.log("Shared drafts, technician history, and mail failure checks passed.");
 }

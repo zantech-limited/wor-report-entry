@@ -100,14 +100,14 @@ export async function POST(request: Request) {
     return noStore(response);
   }
   if (!adminTokenConfigured()) {
-    if (!mayAttemptDiagnosticsAuth()) return tooMany();
+    if (!(await mayAttemptDiagnosticsAuth())) return tooMany();
     return noStore(
       NextResponse.json({ configured: false, error: missingToken }, { status: 503 }),
     );
   }
   const presented = typeof body.token === "string" ? body.token : "";
   if (action === "unlock") {
-    if (!mayAttemptDiagnosticsAuth()) return tooMany();
+    if (!(await mayAttemptDiagnosticsAuth())) return tooMany();
     if (!diagnosticsAuthorized(presented)) return denied();
     try {
       const payload = await authorizedPayload(request, true);
@@ -121,10 +121,10 @@ export async function POST(request: Request) {
   if (action === "test") {
     const cookieOk = diagnosticsSessionValid(request.headers.get("cookie"));
     if (!cookieOk) {
-      if (!mayAttemptDiagnosticsAuth()) return tooMany();
+      if (!(await mayAttemptDiagnosticsAuth())) return tooMany();
       if (!diagnosticsAuthorized(presented)) return denied();
     }
-    if (!mayAttemptDiagnosticsProbe()) return tooMany();
+    if (!(await mayAttemptDiagnosticsProbe())) return tooMany();
     try {
       const probe = await probeDatabase();
       const payload = await authorizedPayload(request, true);
@@ -144,6 +144,6 @@ export async function POST(request: Request) {
       return failed(error);
     }
   }
-  if (!mayAttemptDiagnosticsAuth()) return tooMany();
+  if (!(await mayAttemptDiagnosticsAuth())) return tooMany();
   return noStore(NextResponse.json({ error: "Unknown diagnostics action." }, { status: 400 }));
 }

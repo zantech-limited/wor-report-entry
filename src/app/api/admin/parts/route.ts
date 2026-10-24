@@ -1,4 +1,5 @@
 import {legacyAccess} from "@/lib/access";
+import { HttpError, jsonBody } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { listParts, savePart, partUsage } from "@/lib/parts";
@@ -14,7 +15,7 @@ export async function POST(request: Request) {
   const denied = await requireAdmin(request);
   if (denied) return denied;
   try {
-    await savePart(await request.json());
+    await savePart(await jsonBody(request, 262144));
     const parts = await listParts(true);
     const { totalUses, usedPartNumbers } = await partUsage();
     return NextResponse.json({ parts, totalUses, usedPartNumbers });
@@ -22,14 +23,16 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error &&
-          /^(Enter |Default quantity|Invalid |Storage migration)/.test(
-            error.message,
-          )
+          error instanceof HttpError
             ? error.message
-            : "Could not save that part.",
+            : error instanceof Error &&
+                /^(Enter |Default quantity|Invalid |Storage migration)/.test(
+                  error.message,
+                )
+              ? error.message
+              : "Could not save that part.",
       },
-      { status: 400 },
+      { status: error instanceof HttpError ? error.status : 400 },
     );
   }
 }

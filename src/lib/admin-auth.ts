@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import {accountsEnabled} from "./accounts";
 import {legacyAccess} from "./access";
 import { dataDirectory } from "./storage";
+import { allowAttempt } from "./attempt-limit";
 
 export const adminCookie = "desk-admin";
 export function initializeAdminAccess() {
@@ -83,14 +84,7 @@ export function sameOrigin(request: Request) {
     return false;
   }
 }
-const attempts = new Map<string, { count: number; until: number }>();
 export function mayAttemptLogin() {
-  // A global limit is suitable for this local desk and avoids trusting proxy IP headers.
-  const entry = attempts.get("login");
-  if (!entry || entry.until < Date.now()) {
-    attempts.set("login", { count: 1, until: Date.now() + 60000 });
-    return true;
-  }
-  entry.count += 1;
-  return entry.count <= 10;
+  // Shared across serverless isolates. Proxy IP headers are not trusted.
+  return allowAttempt("admin-token", 10);
 }

@@ -8,6 +8,7 @@ import {
 import { accountSecret } from "./accounts";
 import { record, insertRecord, updateRecord } from "./records";
 import { database } from "./storage";
+import { safeMailHeader } from "./mail-header";
 import { AsyncLocalStorage } from "node:async_hooks";
 export type SmtpSettings = {
   mode: "disabled" | "test" | "smtp";
@@ -106,11 +107,14 @@ export async function sendSmtp(
     connectionTimeout: 10000,
     socketTimeout: 20000,
   });
+  const from = safeMailHeader(settings.from, 254);
+  const replyTo = safeMailHeader(settings.replyTo, 254);
+  const safeSubject = safeMailHeader(subject) || "Zantech service desk";
   return transport.sendMail({
-    from: settings.from,
-    replyTo: settings.replyTo || undefined,
+    from,
+    replyTo: replyTo || undefined,
     to,
-    subject,
+    subject: safeSubject,
     text,
     attachments: attachment ? [attachment] : [],
   });
