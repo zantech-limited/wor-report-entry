@@ -1,12 +1,25 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import {
   PAYMENT_METHODS,
   SERVICE_TYPES,
   SLA_TYPES,
   JOB_STATUSES,
+  canonicalize,
+  locationsFor,
   type WorkOrder,
 } from "@/lib/model";
+import {
+  EMPTY_FIELD_SUGGESTIONS,
+  commitFieldCustomer,
+  commitFieldSerial,
+  contactsFor,
+  emptyFieldTouch,
+  machineHint,
+  serialOptions,
+  siteHint,
+  type FieldSuggestions,
+} from "@/lib/field-suggestion-model";
 import {
   canonicalSnapshot,
   needsAmendmentReason,
@@ -15,7 +28,11 @@ import {
   type ContactFields,
 } from "@/lib/field-model";
 import { SignaturePad } from "./signature-pad";
-import { CustomerFormPreview } from "./customer-form-preview";
+import {
+  CustomerFormPreview,
+  type FieldHistoryHandlers,
+} from "./customer-form-preview";
+import { SuggestInput } from "./suggest-input";
 import { deskApi } from "@/lib/client-api";
 import type { Part } from "@/lib/parts-model";
 import { Input } from "./ui/input";
@@ -31,6 +48,7 @@ export function FieldJobEditor({
   actor,
   readOnly = false,
   onReady,
+  suggestions = EMPTY_FIELD_SUGGESTIONS,
 }: {
   job: FieldJob;
   onChange: (job: FieldJob) => void;
@@ -38,6 +56,7 @@ export function FieldJobEditor({
   actor: Actor;
   readOnly?: boolean;
   onReady: () => void;
+  suggestions?: FieldSuggestions;
 }) {
   const [catalog, setCatalog] = useState<Part[]>([]);
   useEffect(() => {
@@ -48,8 +67,12 @@ export function FieldJobEditor({
   const [reviewed, setReviewed] = useState(false),
     [signing, setSigning] = useState(false),
     [error, setError] = useState("");
+  const jobRef = useRef(job);
+  const touch = useRef(emptyFieldTouch());
+  jobRef.current = job;
   useEffect(() => setReviewed(false), [job.line.wor]);
   function change(next: FieldJob) {
+    const baseline = jobRef.current;
     if (!next.line.technician.trim() && next.fields.completedByName.trim())
       next = {
         ...next,
@@ -58,30 +81,103 @@ export function FieldJobEditor({
     setReviewed(false);
     const content = (value: FieldJob) =>
       JSON.stringify({ ...canonicalSnapshot(value), signature: null });
-    const changed = content(next) !== content(job);
-    onChange({
+    const changed = content(next) !== content(baseline);
+    const saved = {
       ...next,
       signature: changed ? undefined : next.signature,
       signedHash: undefined,
-    });
+    };
+    jobRef.current = saved;
+    onChange(saved);
   }
+  function applyHistory(
+    result: ReturnType<typeof commitFieldCustomer>,
+  ) {
+    touch.current = result.touch;
+    if (result.job !== jobRef.current) change(result.job);
+  }
+  const history: FieldHistoryHandlers = {
+    focusCustomer: () => {
+      touch.current.customerAtFocus = jobRef.current.line.customer;
+    },
+    changeCustomer: (value) => line("customer", value),
+    commitCustomer: (value) => {
+      const current = jobRef.current;
+      applyHistory(
+        commitFieldCustomer(
+          current,
+          touch.current.customerAtFocus,
+          value,
+          suggestions,
+          touch.current,
+        ),
+      );
+    },
+    changeSerial: (value) => {
+      applyHistory(
+        commitFieldSerial(
+          jobRef.current,
+          value,
+          suggestions,
+          touch.current,
+          false,
+        ),
+      );
+    },
+    commitSerial: (value) => {
+      applyHistory(
+        commitFieldSerial(
+          jobRef.current,
+          value,
+          suggestions,
+          touch.current,
+          false,
+        ),
+      );
+    },
+    pickSerial: (value) => {
+      applyHistory(
+        commitFieldSerial(
+          jobRef.current,
+          value,
+          suggestions,
+          touch.current,
+          true,
+        ),
+      );
+    },
+    changeModel: (value) => {
+      touch.current.modelTouched =
+        value.trim() !== "" && value !== touch.current.autofillModel;
+      line("modelNo", value);
+    },
+  };
   function line(field: keyof WorkOrder, value: string) {
-    const next = { ...job, line: { ...job.line, [field]: value } };
+    const current = jobRef.current;
+    if (String(current.line[field] ?? "") === value) return;
+    const next = { ...current, line: { ...current.line, [field]: value } };
     if (
       field === "paymentMethod" ||
       field === "slaType" ||
       field === "serviceType" ||
       field === "revenue"
     )
-      next.fields = { ...job.fields, serviceOption: undefined };
+      next.fields = { ...current.fields, serviceOption: undefined };
     change(next);
   }
   function detail(field: keyof ContactFields, value: string) {
+    const current = jobRef.current;
     if (field === "completedByName") {
-      change(withLeadName(job, value));
+      if (
+        current.fields.completedByName === value &&
+        current.line.technician === value
+      )
+        return;
+      change(withLeadName(current, value));
       return;
     }
-    change({ ...job, fields: { ...job.fields, [field]: value } });
+    if (current.fields[field] === value) return;
+    change({ ...current, fields: { ...current.fields, [field]: value } });
   }
   const input = (label: string, field: keyof WorkOrder, type = "text") => (
     <label className="grid gap-1.5 text-sm">
@@ -211,6 +307,8 @@ export function FieldJobEditor({
         <CustomerFormPreview
           job={job}
           onChange={readOnly ? undefined : change}
+          suggestions={suggestions}
+          history={readOnly ? undefined : history}
           toolbarClassName="top-[4.25rem]"
         />
         <details className="rounded-xl border bg-card p-4">
@@ -220,19 +318,99 @@ export function FieldJobEditor({
           <div className="mt-4 grid gap-4">
             <section className="grid gap-4 rounded-xl border bg-card p-4">
               <h3 className="font-semibold">Client and request</h3>
+              <p className="text-xs text-muted-foreground">
+                Type to filter saved customers, sites and machines. Choosing a
+                customer fills the site when one site is on file. Address,
+                phone and requester stay suggestions until you pick one.
+              </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 {input("Request number", "wor")}
                 {input("Work date", "date", "date")}
-                {input("Client name", "customer")}
-                {input("Site / location", "location")}
-                {contact("Client / worksite address", "clientAddress")}
-                {contact("Phone number", "phone", "tel")}
-                {contact("Requester name", "requesterName")}
-                {contact(
-                  "Requester email for customer copy",
-                  "requesterEmail",
-                  "email",
-                )}
+                <SuggestInput
+                  id="field-customer"
+                  label="Client name"
+                  value={job.line.customer}
+                  suggestions={suggestions.customers}
+                  disabled={readOnly}
+                  placeholder="Start typing a customer"
+                  onFocus={history.focusCustomer}
+                  onChange={history.changeCustomer}
+                  onCommit={history.commitCustomer}
+                  onPick={history.commitCustomer}
+                />
+                <SuggestInput
+                  id="field-location"
+                  label="Site / location"
+                  value={job.line.location}
+                  suggestions={locationsFor(job.line.customer, suggestions)}
+                  disabled={readOnly}
+                  placeholder={
+                    locationsFor(job.line.customer, suggestions).length
+                      ? "Filter this customer's sites"
+                      : "Type a site"
+                  }
+                  hint={siteHint(
+                    job.line.customer,
+                    job.line.location,
+                    suggestions,
+                  )}
+                  onChange={(value) => {
+                    touch.current.locationTouched =
+                      value.trim() !== "" &&
+                      value !== touch.current.autofillLocation;
+                    line("location", value);
+                  }}
+                  onCommit={(value) => {
+                    const location = canonicalize(
+                      value,
+                      locationsFor(jobRef.current.line.customer, suggestions),
+                    );
+                    if (location !== jobRef.current.line.location)
+                      line("location", location);
+                  }}
+                />
+                <SuggestInput
+                  id="field-address"
+                  label="Client / worksite address"
+                  value={job.fields.clientAddress}
+                  suggestions={
+                    contactsFor(job.line.customer, suggestions).addresses
+                  }
+                  disabled={readOnly}
+                  onChange={(value) => detail("clientAddress", value)}
+                  onCommit={(value) => detail("clientAddress", value)}
+                />
+                <SuggestInput
+                  id="field-phone"
+                  label="Phone number"
+                  type="tel"
+                  value={job.fields.phone}
+                  suggestions={contactsFor(job.line.customer, suggestions).phones}
+                  disabled={readOnly}
+                  onChange={(value) => detail("phone", value)}
+                  onCommit={(value) => detail("phone", value)}
+                />
+                <SuggestInput
+                  id="field-requester"
+                  label="Requester name"
+                  value={job.fields.requesterName}
+                  suggestions={
+                    contactsFor(job.line.customer, suggestions).requesters
+                  }
+                  disabled={readOnly}
+                  onChange={(value) => detail("requesterName", value)}
+                  onCommit={(value) => detail("requesterName", value)}
+                />
+                <SuggestInput
+                  id="field-email"
+                  label="Requester email for customer copy"
+                  type="email"
+                  value={job.fields.requesterEmail}
+                  suggestions={contactsFor(job.line.customer, suggestions).emails}
+                  disabled={readOnly}
+                  onChange={(value) => detail("requesterEmail", value)}
+                  onCommit={(value) => detail("requesterEmail", value)}
+                />
                 {contact("Scheduled date", "scheduledDate", "date")}
               </div>
             </section>
@@ -306,8 +484,37 @@ export function FieldJobEditor({
               {note("Description of work required", "workRequired")}
               {note("Details of work carried out", "workCarriedOut")}
               <div className="grid gap-4 sm:grid-cols-2">
-                {input("Model", "modelNo")}
-                {input("Serial number", "serialNo")}
+                <label className="grid gap-1.5 text-sm">
+                  Model
+                  <Input
+                    disabled={readOnly}
+                    value={job.line.modelNo}
+                    onChange={(event) => history.changeModel(event.target.value)}
+                  />
+                </label>
+                <SuggestInput
+                  id="field-serial"
+                  label="Serial number"
+                  value={job.line.serialNo}
+                  suggestions={serialOptions(job.line.customer, suggestions)}
+                  limit={40}
+                  disabled={readOnly}
+                  placeholder={
+                    serialOptions(job.line.customer, suggestions).length
+                      ? "Filter serial or model"
+                      : "Serial number"
+                  }
+                  hint={machineHint(
+                    job.line.customer,
+                    serialOptions(job.line.customer, suggestions).length,
+                  )}
+                  onFocus={() => {
+                    touch.current.serialAtEdit = jobRef.current.line.serialNo;
+                  }}
+                  onChange={history.changeSerial}
+                  onCommit={history.commitSerial}
+                  onPick={history.pickSerial}
+                />
                 {input("Copy count", "copycount")}
                 {select("Service type", "serviceType", SERVICE_TYPES)}
                 {select("SLA", "slaType", SLA_TYPES)}

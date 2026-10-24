@@ -24,6 +24,11 @@ type SuggestInputProps = {
   hint?: string;
   className?: string;
   limit?: number;
+  disabled?: boolean;
+  type?: string;
+  autoFocus?: boolean;
+  /** Inline keeps the list in the dialog flow so a phone keyboard does not cover it. */
+  listMode?: "overlay" | "inline";
 };
 
 function asOption(item: string | SuggestOption): Required<Pick<SuggestOption, "value" | "label">> & SuggestOption {
@@ -44,6 +49,10 @@ export function SuggestInput({
   hint,
   className,
   limit = 8,
+  disabled = false,
+  type = "text",
+  autoFocus = false,
+  listMode = "overlay",
 }: SuggestInputProps) {
   const listId = useId();
   const [open, setOpen] = useState(false);
@@ -92,13 +101,17 @@ export function SuggestInput({
           placeholder={placeholder}
           className={cn("h-11 text-base", className)}
           value={value}
+          disabled={disabled}
+          type={type}
+          autoFocus={autoFocus}
           onFocus={() => {
+            if (disabled) return;
             onFocus?.();
             setOpen(true);
           }}
           onBlur={() => {
             setOpen(false);
-            onCommit(value);
+            if (!disabled) onCommit(value);
           }}
           onChange={(event) => {
             onChange(event.target.value);
@@ -126,7 +139,12 @@ export function SuggestInput({
             id={listId}
             role="listbox"
             aria-label={label}
-            className="absolute top-full z-30 mt-1 max-h-72 w-full overflow-auto rounded-lg border bg-popover p-1 text-sm shadow-md"
+            className={cn(
+              "mt-1 max-h-72 w-full overflow-auto rounded-lg border bg-popover p-1 text-sm",
+              listMode === "inline"
+                ? "static"
+                : "absolute top-full z-30 shadow-md",
+            )}
           >
             {filtered.map((item, index) => (
               <li
@@ -136,6 +154,7 @@ export function SuggestInput({
                 aria-selected={index === highlight}
                 className={cn(
                   "cursor-pointer rounded-md px-2.5 py-2",
+                  listMode === "inline" && "min-h-11",
                   index === highlight && "bg-accent text-accent-foreground",
                 )}
                 onMouseDown={(event) => event.preventDefault()}

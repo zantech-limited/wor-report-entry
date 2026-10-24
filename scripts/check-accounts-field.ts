@@ -9,7 +9,14 @@ import { saveFieldJob, visibleJobs, hashSnapshot } from "../src/lib/field-jobs";
 import { records, record } from "../src/lib/records";
 import { crewNames, excelCrewComments } from "../src/lib/crew";
 import { monthlyAnalysis } from "../src/lib/monthly-report";
-import { listWorkEntries } from "../src/lib/db";
+import { createBlankReport, listWorkEntries, saveReport } from "../src/lib/db";
+import { blankLine } from "../src/lib/model";
+import { suggestionsForActor } from "../src/lib/field-suggestions";
+import {
+  commitFieldCustomer,
+  commitFieldSerial,
+  emptyFieldTouch,
+} from "../src/lib/field-suggestion-model";
 async function main() {
   assert(
     process.env.DATA_DIR?.includes(".checks"),
@@ -195,13 +202,210 @@ async function main() {
   const secondSync = await saveFieldJob(adminActor,shortId,shared.data,shared.revision,randomUUID(),false);
   assert.equal(secondSync.requestNumber, firstSync.requestNumber);
   await assert.rejects(saveFieldJob(actor,shortId,shortJob,1,randomUUID(),false), /Conflict:/);
+  const history = await createBlankReport();
+  const remembered = history.lines[0];
+  await saveReport(history.id, {
+    ...history,
+    lines: [
+      {
+        ...remembered,
+        customer: "Scoped Customer",
+        location: "North Site",
+        serialNo: "ABC1234",
+        modelNo: "Bizhub 227",
+        technician: "Tech 0",
+        secondaryTech: "",
+        additionalTechs: [],
+        date: "2026-10-02",
+        wor: "HIST-1",
+      },
+      {
+        ...blankLine("2"),
+        customer: "Scoped Customer",
+        location: "South Site",
+        serialNo: "HID9999",
+        modelNo: "Secret Model",
+        technician: "Tech 6",
+        date: "2026-10-03",
+        wor: "HIST-2",
+        partsRequired: "No",
+        paymentMethod: "No charge",
+        revenue: "0",
+        jobStatus: "Completed",
+        ftf: "N/A",
+      },
+      {
+        ...blankLine("3"),
+        customer: "Hidden Customer",
+        location: "Secret Site",
+        serialNo: "SEC1111",
+        modelNo: "Hidden Model",
+        technician: "Tech 6",
+        date: "2026-10-03",
+        wor: "HIST-3",
+        partsRequired: "No",
+        paymentMethod: "No charge",
+        revenue: "0",
+        jobStatus: "Completed",
+        ftf: "N/A",
+      },
+    ],
+  });
+  const walkInId = randomUUID();
+  const walkIn = emptyJob(walkInId);
+  Object.assign(walkIn.line, {
+    date: "2026-10-08",
+    customer: "Walk In Client",
+    location: "Van",
+    technician: actor.technicianName,
+    additionalTechs: [],
+  });
+  walkIn.assignedIds = [actor.id];
+  walkIn.fields.clientAddress = "1 Walk Street";
+  walkIn.fields.phone = "555-0199";
+  walkIn.fields.requesterName = "Walk Requester";
+  walkIn.fields.requesterEmail = "walk@example.test";
+  await saveFieldJob(actor, walkInId, walkIn, 0, randomUUID(), false);
+  const contactId = randomUUID();
+  const contactJob = emptyJob(contactId);
+  Object.assign(contactJob.line, {
+    date: "2026-10-08",
+    customer: "Scoped Customer",
+    location: "North Site",
+    serialNo: "ABC1234",
+    modelNo: "Bizhub 227",
+    technician: actor.technicianName,
+    additionalTechs: [],
+  });
+  contactJob.assignedIds = [actor.id];
+  contactJob.fields.clientAddress = "12 Field Road";
+  contactJob.fields.phone = "555-0100";
+  contactJob.fields.requesterName = "Ada Request";
+  contactJob.fields.requesterEmail = "ada@example.test";
+  await saveFieldJob(actor, contactId, contactJob, 0, randomUUID(), false);
+  const otherActor = {
+    ...actor,
+    id: users[6].id,
+    role: "tech" as const,
+    technicianName: "Tech 6",
+  };
+  const secretId = randomUUID();
+  const secretJob = emptyJob(secretId);
+  Object.assign(secretJob.line, {
+    date: "2026-10-08",
+    customer: "Hidden Customer",
+    location: "Secret Site",
+    technician: "Tech 6",
+    additionalTechs: [],
+  });
+  secretJob.assignedIds = [users[6].id];
+  secretJob.fields.clientAddress = "99 Secret Lane";
+  secretJob.fields.phone = "555-0111";
+  secretJob.fields.requesterName = "Hidden Requester";
+  secretJob.fields.requesterEmail = "hidden@example.test";
+  await saveFieldJob(otherActor, secretId, secretJob, 0, randomUUID(), false);
+  assert.equal(actor.technicianName, "Tech 0");
+  const techView = await suggestionsForActor(actor);
+  assert.equal(techView.customers.includes("Scoped Customer"), true);
+  assert.equal(techView.customers.includes("Walk In Client"), true);
+  assert.equal(techView.customers.includes("Hidden Customer"), false);
+  assert.deepEqual(techView.locationsByCustomer["Scoped Customer"], ["North Site"]);
+  assert.deepEqual(techView.locationsByCustomer["Walk In Client"], ["Van"]);
+  assert.equal(
+    techView.machinesByCustomer["Scoped Customer"]?.some(
+      (machine) => machine.serialNo === "ABC1234" && machine.modelNo === "Bizhub 227",
+    ),
+    true,
+  );
+  assert.equal(
+    JSON.stringify(techView).includes("South Site") ||
+      JSON.stringify(techView).includes("HID9999") ||
+      JSON.stringify(techView).includes("Hidden Customer") ||
+      JSON.stringify(techView).includes("99 Secret Lane"),
+    false,
+  );
+  assert.deepEqual(techView.contactsByCustomer["Scoped Customer"], {
+    addresses: ["12 Field Road"],
+    phones: ["555-0100"],
+    requesters: ["Ada Request"],
+    emails: ["ada@example.test"],
+  });
+  const otherView = await suggestionsForActor(otherActor);
+  assert.equal(otherView.customers.includes("Hidden Customer"), true);
+  assert.equal(otherView.customers.includes("Walk In Client"), false);
+  assert.equal(otherView.locationsByCustomer["Scoped Customer"]?.includes("North Site"), false);
+  assert.equal(
+    otherView.contactsByCustomer["Hidden Customer"]?.addresses.includes("99 Secret Lane"),
+    true,
+  );
+  assert.equal(JSON.stringify(otherView).includes("12 Field Road"), false);
+  const managerView = await suggestionsForActor({ ...actor, role: "manager" });
+  for (const name of ["Hidden Customer", "Scoped Customer", "Walk In Client"])
+    assert.equal(managerView.customers.includes(name), true, name);
+  assert.equal(managerView.locationsByCustomer["Scoped Customer"]?.includes("South Site"), true);
+  assert.equal(managerView.locationsByCustomer["Scoped Customer"]?.includes("North Site"), true);
+  assert.equal(
+    managerView.contactsByCustomer["Hidden Customer"]?.addresses.includes("99 Secret Lane"),
+    true,
+  );
+  const picked = commitFieldCustomer(
+    emptyJob(randomUUID()),
+    "",
+    "scoped customer",
+    techView,
+    emptyFieldTouch(),
+  );
+  assert.equal(picked.job.line.customer, "Scoped Customer");
+  assert.equal(picked.job.line.location, "North Site");
+  assert.equal(picked.job.fields.clientAddress, "");
+  const several = commitFieldCustomer(
+    emptyJob(randomUUID()),
+    "",
+    "Scoped Customer",
+    managerView,
+    emptyFieldTouch(),
+  );
+  assert.equal(several.job.line.location, "");
+  const kept = commitFieldCustomer(
+    {
+      ...emptyJob(randomUUID()),
+      line: { ...emptyJob(randomUUID()).line, location: "South Site" },
+    },
+    "",
+    "Scoped Customer",
+    managerView,
+    emptyFieldTouch(),
+  );
+  assert.equal(kept.job.line.location, "South Site");
+  const machineJob = emptyJob(randomUUID());
+  machineJob.line.customer = "Scoped Customer";
+  const machine = commitFieldSerial(
+    machineJob,
+    "abc1234",
+    techView,
+    emptyFieldTouch(),
+    true,
+  );
+  assert.equal(machine.job.line.serialNo, "ABC1234");
+  assert.equal(machine.job.line.modelNo, "Bizhub 227");
+  assert.equal(machine.job.line.location, "North Site");
+  assert.equal(machine.job.fields.phone, "");
+  const unknown = commitFieldSerial(
+    machineJob,
+    "ZZZ999",
+    techView,
+    emptyFieldTouch(),
+    false,
+  );
+  assert.equal(unknown.job.line.serialNo, "ZZZ999");
+  assert.equal(unknown.job.line.modelNo, "");
   await db.query("UPDATE desk_user SET status = ? WHERE id = ?", [
     "archived",
     actor.id,
   ]);
   assert.equal(await currentActor(new Headers({ cookie: cookies })), null);
   console.log(
-    "Accounts/field checks passed: pending roles, real sessions, six-person history/hours, month isolation, idempotency, conflicts, signatures and revocation.",
+    "Accounts/field checks passed: pending roles, real sessions, six-person history/hours, month isolation, idempotency, conflicts, signatures, revocation, and scoped field history.",
   );
   process.exit(0);
 }

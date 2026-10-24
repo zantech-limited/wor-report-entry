@@ -22,6 +22,11 @@ import {
   type LocalDraft,
 } from "@/lib/offline-vault";
 import { FieldJobEditor, type TechnicianOption } from "./field-job-editor";
+import {
+  EMPTY_FIELD_SUGGESTIONS,
+  isFieldSuggestions,
+  type FieldSuggestions,
+} from "@/lib/field-suggestion-model";
 import { CustomerFormPreview } from "./customer-form-preview";
 import { DraftConflict } from "./draft-conflict";
 import { FieldTeam } from "./field-team";
@@ -111,6 +116,9 @@ export function FieldWorkspace() {
     [message, setMessage] = useState(""),
     [tab, setTab] = useState("jobs"),
     [jobs, setJobs] = useState<DeskRecord<FieldJob>[]>([]),
+    [suggestions, setSuggestions] = useState<FieldSuggestions>(
+      EMPTY_FIELD_SUGGESTIONS,
+    ),
     [drafts, setDrafts] = useState<LocalDraft[]>([]),
     [users, setUsers] = useState<TechnicianOption[]>([]),
     [schedules, setSchedules] = useState<DeskRecord<Schedule>[]>([]),
@@ -236,8 +244,30 @@ export function FieldWorkspace() {
       window.removeEventListener("keydown", activity);
     };
   }, []);
+  async function loadSuggestions(vaultKey: CryptoKey, vaultContext: string) {
+    try {
+      const cached = await vaultGet<unknown>(
+        vaultContext,
+        vaultKey,
+        "cache:suggestions",
+      );
+      if (isFieldSuggestions(cached)) setSuggestions(cached);
+    } catch {
+      /* An unreadable cache still leaves typed entry working. */
+    }
+    if (!navigator.onLine) return;
+    try {
+      const fresh = await deskApi<unknown>("/api/field/suggestions");
+      if (!isFieldSuggestions(fresh)) return;
+      setSuggestions(fresh);
+      await vaultPut(vaultContext, vaultKey, "cache:suggestions", fresh);
+    } catch {
+      /* Cached history remains available offline. */
+    }
+  }
   async function refresh(vaultKey = key) {
     if (!identity || !vaultKey) return;
+    void loadSuggestions(vaultKey, context);
     setBusy(true);
     try {
       const pending = await vaultDrafts(context, vaultKey);
@@ -1106,6 +1136,7 @@ export function FieldWorkspace() {
               key={selected.id}
               actor={identity.actor}
               users={users}
+              suggestions={suggestions}
               job={selected.job}
               onChange={edit}
               onReady={() => {

@@ -11,6 +11,13 @@ import {
 } from "@/lib/field-model";
 import type { WorkOrder } from "@/lib/model";
 import {
+  contactsFor,
+  machineHint,
+  serialOptions,
+  type FieldSuggestions,
+} from "@/lib/field-suggestion-model";
+import { SuggestInput } from "./suggest-input";
+import {
   fieldsForLayout,
   formValue,
   formChoices,
@@ -48,6 +55,15 @@ export function SignatureImage({ value }: { value?: Signature }) {
     </svg>
   ) : null;
 }
+export type FieldHistoryHandlers = {
+  focusCustomer: () => void;
+  changeCustomer: (value: string) => void;
+  commitCustomer: (value: string) => void;
+  changeSerial: (value: string) => void;
+  commitSerial: (value: string) => void;
+  pickSerial: (value: string) => void;
+  changeModel: (value: string) => void;
+};
 const position = (
   x: number,
   y: number,
@@ -68,6 +84,8 @@ export function CustomerFormPreview({
   onSelectField,
   onLayoutChange,
   toolbarClassName = "top-0",
+  suggestions,
+  history,
 }: {
   job: FieldJob;
   onChange?: (job: FieldJob) => void;
@@ -76,6 +94,8 @@ export function CustomerFormPreview({
   onSelectField?: (label: string) => void;
   onLayoutChange?: (label: string, box: FieldBox) => void;
   toolbarClassName?: string;
+  suggestions?: FieldSuggestions;
+  history?: FieldHistoryHandlers;
 }) {
   const publishedLayout = useFormLayout(!layout);
   const fields = fieldsForLayout(layout || publishedLayout);
@@ -331,47 +351,67 @@ export function CustomerFormPreview({
         open={!!active}
         onOpenChange={(open) => !open && setActive(undefined)}
       >
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
           <DialogTitle>{active?.label}</DialogTitle>
           <DialogDescription>
             Changes appear in their position on the customer form. Long text
             continues on an extra PDF page.
           </DialogDescription>
+          {active && suggestions && history && isHistoryField(active) ? (
+            <HistoryDialogField
+              field={active}
+              job={job}
+              suggestions={suggestions}
+              history={history}
+              onContact={(value) => update(active, value)}
+            />
+          ) : active?.key === "modelNo" && history ? (
+            <textarea
+              autoFocus
+              aria-label={active.label}
+              className="min-h-24 w-full rounded-lg border p-3 text-base"
+              value={formValue(job, active)}
+              onChange={(event) => history.changeModel(event.target.value)}
+            />
+          ) : (
+            active && (
+              <>
+                {active.type ? (
+                  <input
+                    autoFocus
+                    type={active.type}
+                    aria-label={active.label}
+                    className="min-h-12 w-full rounded-lg border p-3 text-base"
+                    value={formValue(job, active)}
+                    onChange={(e) => update(active, e.target.value)}
+                  />
+                ) : (
+                  <textarea
+                    autoFocus
+                    aria-label={active.label}
+                    className="min-h-32 w-full rounded-lg border p-3 text-base"
+                    value={formValue(job, active)}
+                    onChange={(e) => update(active, e.target.value)}
+                    placeholder={
+                      active.type === "date"
+                        ? "YYYY-MM-DD"
+                        : active.type === "time"
+                          ? "HH:MM"
+                          : active.label
+                    }
+                  />
+                )}
+              </>
+            )
+          )}
           {active && (
-            <>
-              {active.type ? (
-                <input
-                  autoFocus
-                  type={active.type}
-                  aria-label={active.label}
-                  className="min-h-12 w-full rounded-lg border p-3 text-base"
-                  value={formValue(job, active)}
-                  onChange={(e) => update(active, e.target.value)}
-                />
-              ) : (
-                <textarea
-                  autoFocus
-                  aria-label={active.label}
-                  className="min-h-32 w-full rounded-lg border p-3 text-base"
-                  value={formValue(job, active)}
-                  onChange={(e) => update(active, e.target.value)}
-                  placeholder={
-                    active.type === "date"
-                      ? "YYYY-MM-DD"
-                      : active.type === "time"
-                        ? "HH:MM"
-                        : active.label
-                  }
-                />
-              )}
-              <button
-                type="button"
-                className="min-h-12 rounded-lg bg-primary px-4 text-primary-foreground"
-                onClick={() => setActive(undefined)}
-              >
-                Done
-              </button>
-            </>
+            <button
+              type="button"
+              className="min-h-12 rounded-lg bg-primary px-4 text-primary-foreground"
+              onClick={() => setActive(undefined)}
+            >
+              Done
+            </button>
           )}
         </DialogContent>
       </Dialog>
@@ -405,5 +445,125 @@ export function CustomerFormPreview({
         </DialogContent>
       </Dialog>
     </section>
+  );
+}
+const HISTORY_KEYS = new Set([
+  "customer",
+  "clientAddress",
+  "phone",
+  "requesterName",
+  "requesterEmail",
+  "serialNo",
+]);
+function isHistoryField(field: FormField) {
+  return HISTORY_KEYS.has(String(field.key));
+}
+function HistoryDialogField({
+  field,
+  job,
+  suggestions,
+  history,
+  onContact,
+}: {
+  field: FormField;
+  job: FieldJob;
+  suggestions: FieldSuggestions;
+  history: FieldHistoryHandlers;
+  onContact: (value: string) => void;
+}) {
+  const value =
+    field.source === "fields"
+      ? job.fields[field.key as keyof ContactFields] || ""
+      : formValue(job, field);
+  const customer = job.line.customer;
+  const contacts = contactsFor(customer, suggestions);
+  const machines = serialOptions(customer, suggestions);
+  if (field.key === "customer")
+    return (
+      <SuggestInput
+        id="paper-customer"
+        label="Client name"
+        value={value}
+        suggestions={suggestions.customers}
+        autoFocus
+        listMode="inline"
+        placeholder="Start typing a customer"
+        hint="Pick a saved customer to fill the site when one site is on file."
+        onFocus={history.focusCustomer}
+        onChange={history.changeCustomer}
+        onCommit={history.commitCustomer}
+        onPick={history.commitCustomer}
+      />
+    );
+  if (field.key === "serialNo")
+    return (
+      <SuggestInput
+        id="paper-serial"
+        label="Serial number"
+        value={value}
+        suggestions={machines}
+        limit={40}
+        autoFocus
+        listMode="inline"
+        placeholder={machines.length ? "Filter serial or model" : "Serial number"}
+        hint={machineHint(customer, machines.length)}
+        onChange={history.changeSerial}
+        onCommit={history.commitSerial}
+        onPick={history.pickSerial}
+      />
+    );
+  const contact =
+    field.key === "clientAddress"
+      ? {
+          id: "paper-address",
+          label: "Client address",
+          type: "text",
+          options: contacts.addresses,
+          hint: customer.trim()
+            ? "Saved addresses for this customer. Picking one does not change the other fields."
+            : "Choose a customer first. Addresses stay limited to that customer.",
+        }
+      : field.key === "phone"
+        ? {
+            id: "paper-phone",
+            label: "Phone number",
+            type: "tel",
+            options: contacts.phones,
+            hint: customer.trim()
+              ? "Saved phone numbers for this customer."
+              : "Choose a customer first.",
+          }
+        : field.key === "requesterName"
+          ? {
+              id: "paper-requester",
+              label: "Requester name",
+              type: "text",
+              options: contacts.requesters,
+              hint: customer.trim()
+                ? "Saved requester names for this customer."
+                : "Choose a customer first.",
+            }
+          : {
+              id: "paper-email",
+              label: "Customer email",
+              type: "email",
+              options: contacts.emails,
+              hint: customer.trim()
+                ? "Saved customer emails for this customer."
+                : "Choose a customer first.",
+            };
+  return (
+    <SuggestInput
+      id={contact.id}
+      label={contact.label}
+      type={contact.type}
+      value={value}
+      suggestions={contact.options}
+      autoFocus
+      listMode="inline"
+      hint={contact.hint}
+      onChange={onContact}
+      onCommit={onContact}
+    />
   );
 }
