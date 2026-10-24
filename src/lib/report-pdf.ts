@@ -7,14 +7,16 @@ import {nameKey,type WorkEntry} from "./model";
 import packageInfo from "../../package.json";
 const {version}=packageInfo;
 const regularFontBytes=readFileSync(`${process.cwd()}/templates/fonts/NotoSans-Regular.ttf`);
+const logoBytes=readFileSync(`${process.cwd()}/public/icons/zantech-logo.png`);
 
-const ink=rgb(.09,.15,.24),muted=rgb(.35,.4,.47),blue=rgb(.12,.36,.62),pale=rgb(.94,.96,.98),line=rgb(.82,.86,.9),red=rgb(.72,.1,.1);
+const ink=rgb(.09,.15,.24),muted=rgb(.35,.4,.47),blue=rgb(.12,.36,.62),pale=rgb(.94,.96,.98),line=rgb(.82,.86,.9);
 const margin=36;
 export async function createMonthlyPdf(allEntries:WorkEntry[],options:MonthlyReportOptions){
   const entries=monthlyEntries(allEntries,options);
   if(!entries.length)throw new Error("No work orders match this month and these filters.");
   const analysis=monthlyAnalysis(entries),doc=await PDFDocument.create();doc.registerFontkit(fontkit);
   const font=await doc.embedFont(regularFontBytes,{subset:true});
+  const logo=await doc.embedPng(logoBytes);
   const bounds=reportBounds(options);
   const month=options.from?`${bounds.from} to ${bounds.to}`:new Date(`${options.month}-01T12:00:00Z`).toLocaleDateString("en-GB",{month:"long",year:"numeric",timeZone:"UTC"});
   doc.setTitle(`Monthly Service Report — ${month}`);doc.setAuthor("Zantech Limited");doc.setSubject("Field service activity, hours, customers, parts and recorded revenue");
@@ -28,7 +30,7 @@ export async function createMonthlyPdf(allEntries:WorkEntry[],options:MonthlyRep
   }
   const text=(page:PDFPage,value:string,x:number,y:number,size=10,color=ink)=>page.drawText(clean(value),{x,y,size,font,color});
   const heading=(page:PDFPage,value:string,y:number,size=17)=>{text(page,value,margin,y,size);return y-size-18;};
-  function page(title:string,landscape=false){const p=doc.addPage(landscape?[841.89,595.28]:[595.28,841.89]);text(p,"ZANTECH LIMITED  /  FIELD SERVICE",margin,p.getHeight()-37,8,blue);text(p,month,p.getWidth()-margin-font.widthOfTextAtSize(month,9),p.getHeight()-37,9,muted);return {p,y:heading(p,title,p.getHeight()-73)};}
+  function page(title:string,landscape=false){const p=doc.addPage(landscape?[841.89,595.28]:[595.28,841.89]);const logoSize=20;p.drawImage(logo,{x:margin,y:p.getHeight()-46,width:logoSize,height:logoSize});text(p,"ZANTECH LIMITED  /  FIELD SERVICE",margin+logoSize+6,p.getHeight()-37,8,blue);text(p,month,p.getWidth()-margin-font.widthOfTextAtSize(month,9),p.getHeight()-37,9,muted);return {p,y:heading(p,title,p.getHeight()-73)};}
   function paragraph(p:PDFPage,value:string,y:number,size=9,width=p.getWidth()-margin*2){for(const row of wrap(value,width,size)){text(p,row,margin,y,size,muted);y-=size+4;}return y-9;}
   function chart(p:PDFPage,title:string,data:{label:string;value:number}[],top:number,unit="jobs",height=260){
     const width=p.getWidth()-margin*2;p.drawRectangle({x:margin,y:top-height,width,height,color:pale});text(p,title,margin+14,top-25,13);
@@ -92,6 +94,6 @@ export async function createMonthlyPdf(allEntries:WorkEntry[],options:MonthlyRep
     ["Payment: "+(e.paymentMethod||"Unspecified"),"Revenue ($): "+(e.revenue===null?"Not recorded":e.revenue.toFixed(2))].join("\n"),
   ]);
   table("Work-order parts, billing and notes",["No. / WOR / Date","Parts and notes","Billing"],supplementary,[110,479,180],true);
-  const pages=doc.getPages();pages.forEach((page,index)=>{page.drawLine({start:{x:margin,y:45},end:{x:page.getWidth()-margin,y:45},thickness:.5,color:line});text(page,"Internal use only",margin,28,8,red);text(page,"© Zantech Limited",page.getWidth()/2-43,28,8,muted);const footer=`v${version} · ${index+1} / ${pages.length}`;text(page,footer,page.getWidth()-margin-font.widthOfTextAtSize(footer,8),28,8,muted);});
+  const pages=doc.getPages();pages.forEach((page,index)=>{page.drawLine({start:{x:margin,y:45},end:{x:page.getWidth()-margin,y:45},thickness:.5,color:line});text(page,"© Zantech Limited",margin,28,8,muted);const footer=`v${version} · ${index+1} / ${pages.length}`;text(page,footer,page.getWidth()-margin-font.widthOfTextAtSize(footer,8),28,8,muted);});
   return Buffer.from(await doc.save());
 }

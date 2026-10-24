@@ -24,7 +24,14 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Zantech Service Desk",
   appleWebApp:{capable:true,statusBarStyle:"default",title:"Zantech"},
-  icons:{apple:"/icons/desk-192.png"},
+  icons:{
+    icon:[
+      {url:"/favicon.ico"},
+      {url:"/icons/zantech-192.png",sizes:"192x192",type:"image/png"},
+      {url:"/icons/zantech-512.png",sizes:"512x512",type:"image/png"},
+    ],
+    apple:[{url:"/icons/apple-touch-icon.png",sizes:"180x180",type:"image/png"}],
+  },
   description:
     "Enter field work orders and export the Excel workbook the service desk already uses.",
 };
@@ -82,9 +89,6 @@ export default async function RootLayout({
             {unavailable ? <section className="mx-auto grid max-w-lg gap-4 px-4 py-12"><h1 className="text-2xl font-semibold">The shared desk is temporarily unavailable</h1>{deployment.blocking.length > 0 ? <p>This deployment is missing required settings: {deployment.blocking.join(", ")}. Set those names in the host environment. No setting values are shown here.</p> : <p>{outage}</p>}<p>Your saved device drafts remain available.</p><a className="inline-flex min-h-11 items-center rounded-lg border px-4" href="/offline">Open device drafts</a><a className="inline-flex min-h-11 items-center rounded-lg border px-4" href="/diagnostics">Admin connection diagnostics</a><p className="text-sm text-muted-foreground">Connection diagnostics does not use a database sign-in. An admin unlocks it with the ADMIN_TOKEN configured for this deployment.</p><a className="underline" href={pathname}>Try again</a></section> : children}
           </main>
           <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 border-t px-4 py-5 text-xs text-muted-foreground sm:px-6">
-            <p className="rounded-md border border-red-300 bg-red-50 px-3 py-1.5 font-semibold text-red-700">
-              Internal use only
-            </p>
             <p>© {new Date().getFullYear()} Zantech Limited · {revision}</p>
             <meta name="desk-revision" content={revision} />
           </footer>

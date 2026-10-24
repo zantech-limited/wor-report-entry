@@ -4,6 +4,7 @@ const tracedFiles = [
   "./templates/*.xlsm",
   "./templates/fonts/*",
   "./public/work-order-template.png",
+  "./public/icons/zantech-logo.png",
 ];
 
 const nextConfig: NextConfig = {

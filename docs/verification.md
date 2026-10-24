@@ -9,7 +9,7 @@ The local preview is running at http://127.0.0.1:43124 under Compose project `re
 - Reports has inclusive date ranges, explicit undated inclusion, and optional monthly jobs/hours and service graphs.
 - Reports and Statistics credit full visit hours to both primary and secondary technicians. The same technician in both slots counts once; site totals count the visit once.
 - Duplicate notices compare WOR and serial only, ignore case/whitespace and N/A, identify the source workbook and visit, and link to it. Separate WOR/serial counts include matches beyond the 50-row display limit.
-- Every page displays version 0.2.0, © Zantech Limited, and the red bottom-left Internal use only notice.
+- Every page displays version 0.2.0 and © Zantech Limited.
 - Admin includes structured logs, portable backup/restore, SQLite/MySQL/PostgreSQL connection testing and verified migration into an empty destination.
 - UI cleanup includes readable typography, keyboard focus, responsive navigation, grouped fields, save status, Master sorting/filter reset, and retained edits with explicit retry after save failure.
 

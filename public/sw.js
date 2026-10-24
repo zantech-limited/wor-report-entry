@@ -1,4 +1,4 @@
-const CACHE = "zantech-shell-v064";
+const CACHE = "zantech-shell-v065";
 async function cacheEach(cache, urls) {
   await Promise.all(
     urls.map(async (url) => {
@@ -26,7 +26,16 @@ self.addEventListener("install", (event) => {
           ].map((match) => match[1]),
         ),
       ];
-      await cacheEach(cache, [...assets, "/icons/desk.svg", "/work-order-template.png"]);
+      await cacheEach(cache, [
+        ...assets,
+        "/icons/zantech-logo.png",
+        "/icons/zantech-192.png",
+        "/icons/zantech-512.png",
+        "/icons/zantech-maskable-192.png",
+        "/icons/zantech-maskable-512.png",
+        "/icons/apple-touch-icon.png",
+        "/work-order-template.png",
+      ]);
     })(),
   );
 });

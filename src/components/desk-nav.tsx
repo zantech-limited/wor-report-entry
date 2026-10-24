@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -10,7 +11,6 @@ import {
   ChartNoAxesColumn,
   FileText,
   Settings2,
-  Wrench,
   Users,
   Package,
   ScanLine,
@@ -34,9 +34,15 @@ export function DeskNav({role,accounts=false}:{role?:string;accounts?:boolean}) 
     <header className="border-b bg-card shadow-sm">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-4 sm:px-6">
         <p className="flex items-center gap-2.5 text-sm font-semibold tracking-tight">
-          <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-            <Wrench className="size-4" aria-hidden="true" />
-          </span>
+          <Image
+            src="/icons/zantech-logo.png"
+            alt="Zantech"
+            width={44}
+            height={44}
+            priority
+            unoptimized
+            className="size-11 shrink-0"
+          />
           Service desk
           <span className="rounded-full border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">v{packageInfo.version}</span>
         </p>
