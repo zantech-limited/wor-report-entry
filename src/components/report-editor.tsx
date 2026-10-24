@@ -4,6 +4,7 @@ import { workbookMonth, monthBounds } from "@/lib/workbook-month";
 import { formatCopycount } from "@/lib/copycount";
 import { delayedEntryField, blocksEntryAutosave, entrySaveDelay } from "@/lib/entry-autosave";
 import {writeLocalDraft,readLocalDraft,clearLocalDraft,archiveLocalDraft} from "@/lib/local-draft";
+import { onDraftFlush } from "@/lib/app-update";
 
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -343,6 +344,9 @@ export function ReportEditor({
       if (!force && !failed && dirty.current && !autosaveBlocked()) scheduleSave();
     }
   }
+  const persistForUpdate = useRef(persist);
+  persistForUpdate.current = persist;
+  useEffect(() => onDraftFlush(() => persistForUpdate.current(true).then(() => undefined)), []);
 
   function patchLine(partial: Partial<WorkOrder>) {
     if(partial.date && lockedMonth && !partial.date.startsWith(`${lockedMonth}-`)) {

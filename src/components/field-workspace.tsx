@@ -23,6 +23,7 @@ import { FieldJobEditor, type TechnicianOption } from "./field-job-editor";
 import { CustomerFormPreview } from "./customer-form-preview";
 import { DraftConflict } from "./draft-conflict";
 import { FieldTeam } from "./field-team";
+import { onDraftFlush } from "@/lib/app-update";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 type Identity = { actor: Actor; database: string };
@@ -74,6 +75,47 @@ export function FieldWorkspace() {
   const current = useRef<LocalDraft | undefined>(undefined),
     lastActivity = useRef(Date.now()),
     context = identity ? `${identity.database}:${identity.actor.id}` : "";
+  const persistRef = useRef<(draft: LocalDraft) => Promise<void>>(
+    async () => {},
+  );
+  const uploadRef = useRef<
+    (draft: LocalDraft, background?: boolean) => Promise<void>
+  >(async () => {});
+  const keyRef = useRef(key);
+  const contextRef = useRef(context);
+  keyRef.current = key;
+  contextRef.current = context;
+  useEffect(() => {
+    return onDraftFlush(async () => {
+      const vaultKey = keyRef.current;
+      const vaultContext = contextRef.current;
+      if (!vaultKey || !vaultContext) return;
+      const live = current.current;
+      if (live) {
+        try {
+          await persistRef.current(live);
+        } catch {
+          /* A failed device save must not skip drafts already stored in the vault. */
+        }
+      }
+      if (!navigator.onLine) return;
+      const pending = await vaultDrafts(vaultContext, vaultKey);
+      for (const draft of pending) {
+        if (
+          draft.submit ||
+          draft.conflict ||
+          !draft.job.line.date ||
+          !draft.job.assignedIds.every(Boolean)
+        )
+          continue;
+        const started = Date.now();
+        while (uploading.current && Date.now() - started < 7000)
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        if (uploading.current) return;
+        await uploadRef.current(draft, true);
+      }
+    });
+  }, []);
   useEffect(() => {
     function connection() {
       setOnline(navigator.onLine);
@@ -279,6 +321,7 @@ export function FieldWorkspace() {
       );
     }
   }
+  persistRef.current = persist;
   function edit(job: FieldJob) {
     const previous = current.current;
     if (!previous) return;
@@ -498,6 +541,7 @@ export function FieldWorkspace() {
       setUploadBusy(false);
     }
   }
+  uploadRef.current = upload;
   useEffect(() => {
     if (!key || !online || uploadBusy || unsaved.current) return;
     const draft = drafts.find(

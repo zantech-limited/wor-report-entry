@@ -1,4 +1,4 @@
-const CACHE = "zantech-shell-v060";
+const CACHE = "zantech-shell-v061";
 async function cacheEach(cache, urls) {
   await Promise.all(
     urls.map(async (url) => {
@@ -29,6 +29,9 @@ self.addEventListener("install", (event) => {
       await cacheEach(cache, [...assets, "/icons/desk.svg", "/work-order-template.png"]);
     })(),
   );
+});
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") self.skipWaiting();
 });
 self.addEventListener("activate", (event) => {
   event.waitUntil(

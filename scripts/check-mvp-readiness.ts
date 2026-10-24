@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { equalSecret } from "../src/lib/admin-auth";
 import { clientErrorMessage } from "../src/lib/http";
+import { flushDeviceDrafts, onDraftFlush } from "../src/lib/app-update";
 import { deploymentCheck } from "../src/lib/startup-env";
 
 const keys = [
@@ -42,6 +43,7 @@ function fillValid() {
   process.env.ADMIN_TOKEN = "admin-token-value";
 }
 
+async function main() {
 try {
   delete process.env.VERCEL;
   assert.deepEqual(deploymentCheck(), { blocking: [], warnings: [] });
@@ -75,10 +77,31 @@ try {
     "This workbook has no Master sheet.",
   );
   const worker = readFileSync("public/sw.js", "utf8");
-  assert.match(worker, /zantech-shell-v060/);
+  assert.match(worker, /zantech-shell-v061/);
   assert.match(worker, /cacheEach/);
+  assert.match(worker, /SKIP_WAITING/);
+  const setup = readFileSync("src/components/pwa-setup.tsx", "utf8");
+  assert.match(setup, /Update now/);
+  assert.match(setup, /BroadcastChannel/);
+  assert.match(setup, /controllerchange/);
   assert.match(readFileSync("src/app/api/cron/mail/route.ts", "utf8"), /drainMailQueue/);
+  let runs = 0;
+  const stop = onDraftFlush(() => {
+    runs += 1;
+  });
+  const stopFailing = onDraftFlush(() => {
+    throw new Error("draft flush failed");
+  });
+  await flushDeviceDrafts();
+  assert.equal(runs, 1);
+  stop();
+  stopFailing();
+  await flushDeviceDrafts();
+  assert.equal(runs, 1);
   console.log("MVP readiness checks passed.");
 } finally {
   restore();
 }
+}
+
+void main();
