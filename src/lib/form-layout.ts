@@ -5,6 +5,7 @@ import type {
 } from "./field-model";
 import type { WorkOrder } from "./model";
 import { crewNames } from "./crew";
+import { formatClock12 } from "./clock-time";
 
 // Pixel coordinates on the original 1102 × 1427 customer form.
 export type FormField = {
@@ -391,7 +392,9 @@ export function formValue(
       job.fields[field.key as keyof ContactFields] ||
       (field.key === "clientAddress" ? job.line.location : "")
     );
-  return String(job.line[field.key as keyof typeof job.line] ?? "");
+  const raw = String(job.line[field.key as keyof typeof job.line] ?? "");
+  if (field.type === "time") return formatClock12(raw);
+  return raw;
 }
 export const formChoices = [
   { label: "Rental", x: 612, y: 899, w: 57 },

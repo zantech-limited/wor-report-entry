@@ -7,6 +7,12 @@ import { emptyJob } from "../src/lib/field-model";
 import { hashSnapshot, legacyHashSnapshot, saveFieldJob, visibleJobs } from "../src/lib/field-jobs";
 import { getReport, getSuggestions } from "../src/lib/db";
 import { formFields, formValue } from "../src/lib/form-layout";
+import { formatClock12, formatStoredClock } from "../src/lib/clock-time";
+import {
+  contentDisposition,
+  filenameFromDisposition,
+  workOrderPdfFilename,
+} from "../src/lib/pdf-name";
 import { currentDeskMonth, deskMonthLabel, shiftDeskMonth } from "../src/lib/desk-month";
 import { linkedTechnicianIdentities } from "../src/lib/technician-identity";
 import { processMailQueue } from "../src/lib/mail-queue";
@@ -20,6 +26,45 @@ async function main() {
   assert.equal(deskMonthLabel("2026-10"), "October 2026");
   assert.equal(currentDeskMonth(new Date("2026-11-01T03:30:00Z")), "2026-10");
   assert.equal(currentDeskMonth(new Date("2026-11-01T04:30:00Z")), "2026-11");
+  assert.equal(formatClock12(""), "");
+  assert.equal(formatClock12("00:00"), "12:00 AM");
+  assert.equal(formatClock12("08:30"), "8:30 AM");
+  assert.equal(formatClock12("12:00"), "12:00 PM");
+  assert.equal(formatClock12("13:05"), "1:05 PM");
+  assert.equal(formatClock12("23:59"), "11:59 PM");
+  assert.equal(formatClock12("not-a-time"), "not-a-time");
+  assert.equal(formatStoredClock(12, 0, "AM"), "00:00");
+  assert.equal(formatStoredClock(12, 0, "PM"), "12:00");
+  assert.equal(formatStoredClock(1, 5, "PM"), "13:05");
+  assert.equal(formatStoredClock(8, 30, "AM"), "08:30");
+  assert.equal(formatStoredClock(0, 0, "AM"), "");
+  const startedField = formFields.find((field) => field.key === "arrivalTime");
+  assert(startedField);
+  const timed = emptyJob("00000000-0000-4000-8000-000000000001");
+  timed.line.arrivalTime = "15:45";
+  assert.equal(formValue(timed, startedField), "3:45 PM");
+  assert.equal(
+    workOrderPdfFilename({
+      wor: "1042",
+      customer: "Caribbean Supplies",
+      date: "2026-10-24",
+    }),
+    "1042 Caribbean Supplies 2026-10-24.pdf",
+  );
+  assert.equal(workOrderPdfFilename({}), "Work order.pdf");
+  assert.equal(
+    workOrderPdfFilename({ wor: "1042", customer: "Acme/East", date: "2026-10-24" }),
+    "1042 Acme East 2026-10-24.pdf",
+  );
+  const disposition = contentDisposition("1042 Café 2026-10-24.pdf", true);
+  assert.match(disposition, /^attachment;/);
+  assert.match(disposition, /filename="1042 Caf_ 2026-10-24\.pdf"/);
+  assert.match(
+    disposition,
+    /filename\*=UTF-8''1042%20Caf%C3%A9%202026-10-24\.pdf/,
+  );
+  assert.equal(filenameFromDisposition(disposition), "1042 Café 2026-10-24.pdf");
+  assert.match(contentDisposition("Work order.pdf", false), /^inline;/);
   const techField = formFields.find((field) => field.label === "Technicians");
   assert(techField);
   const namedPreview = emptyJob("00000000-0000-4000-8000-000000000001");
@@ -237,7 +282,7 @@ async function main() {
   assert.equal(JSON.stringify(debug).includes(actor.email), false);
   assert.ok(debug.devices.some((row) => row.device === "computer abcd" && row.count >= 1));
   assert.ok(debug.events.some((row) => row.kind === "review" && /signed preview/.test(row.message) && row.reference.length === 8));
-  assert.match(debug.serviceWorker, /zantech-shell-v061/);
+  assert.match(debug.serviceWorker, /zantech-shell-v062/);
   assert.equal(debug.template, "present");
   console.log("Shared drafts, technician history, and mail failure checks passed.");
 }

@@ -17,6 +17,7 @@ import {
   type FieldSuggestions,
 } from "@/lib/field-suggestion-model";
 import { SuggestInput } from "./suggest-input";
+import { ClockTimeInput } from "./clock-time-input";
 import {
   fieldsForLayout,
   formValue,
@@ -373,6 +374,13 @@ export function CustomerFormPreview({
               value={formValue(job, active)}
               onChange={(event) => history.changeModel(event.target.value)}
             />
+          ) : active?.type === "time" ? (
+            <ClockTimeInput
+              id={`form-${active.key}`}
+              label={active.label}
+              value={String(job.line[active.key as keyof typeof job.line] ?? "")}
+              onChange={(value) => update(active, value)}
+            />
           ) : (
             active && (
               <>
@@ -393,11 +401,7 @@ export function CustomerFormPreview({
                     value={formValue(job, active)}
                     onChange={(e) => update(active, e.target.value)}
                     placeholder={
-                      active.type === "date"
-                        ? "YYYY-MM-DD"
-                        : active.type === "time"
-                          ? "HH:MM"
-                          : active.label
+                      active.type === "date" ? "YYYY-MM-DD" : active.label
                     }
                   />
                 )}
