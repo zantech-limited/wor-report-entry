@@ -77,7 +77,7 @@ try {
     "This workbook has no Master sheet.",
   );
   const worker = readFileSync("public/sw.js", "utf8");
-  assert.match(worker, /zantech-shell-v061/);
+  assert.match(worker, /zantech-shell-v062/);
   assert.match(worker, /cacheEach/);
   assert.match(worker, /SKIP_WAITING/);
   const setup = readFileSync("src/components/pwa-setup.tsx", "utf8");

@@ -9,6 +9,7 @@ import {
 } from "../src/lib/monthly-report";
 import type { WorkEntry } from "../src/lib/model";
 import { PDFDocument } from "pdf-lib";
+import { formFields, formValue } from "../src/lib/form-layout";
 async function main() {
   const job = emptyJob("00000000-0000-4000-8000-000000000001");
   Object.assign(job.line, {
@@ -61,6 +62,12 @@ async function main() {
       ],
     ],
   };
+  const arrival = formFields.find((field) => field.key === "arrivalTime");
+  const departure = formFields.find((field) => field.key === "departureTime");
+  assert(arrival && departure);
+  const snapshot = customerSnapshot(job);
+  assert.equal(formValue(snapshot, arrival), "8:30 AM");
+  assert.equal(formValue(snapshot, departure), "10:15 AM");
   mkdirSync(".checks/field-pdf", { recursive: true });
   const charged = await customerPdf(customerSnapshot(job));
   writeFileSync(".checks/field-pdf/charged.pdf", charged);
