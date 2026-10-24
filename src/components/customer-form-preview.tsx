@@ -3,6 +3,7 @@ import { useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { useFormLayout } from "@/lib/use-form-layout";
 import {
   FORM_OPTIONS,
+  withLeadName,
   type FieldJob,
   type Signature,
   type ContactFields,
@@ -123,6 +124,15 @@ export function CustomerFormPreview({
     [active, setActive] = useState<FormField>(),
     [sign, setSign] = useState<"signature" | "technicianSignature">();
   function update(field: FormField, value: string) {
+    if (field.source === "crew") {
+      const lead = value.split(",")[0]?.trim() ?? "";
+      onChange?.(withLeadName(job, lead));
+      return;
+    }
+    if (field.key === "completedByName") {
+      onChange?.(withLeadName(job, value));
+      return;
+    }
     if (field.source === "fields")
       onChange?.({
         ...job,
@@ -182,7 +192,6 @@ export function CustomerFormPreview({
               editable =
                 onLayoutChange ||
                 (onChange &&
-                  field.source !== "crew" &&
                   field.source !== "notice" &&
                   field.key !== "wor");
             const style = {

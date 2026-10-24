@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { deskApi, todayLocal } from "@/lib/client-api";
 import {
   emptyJob,
+  needsAmendmentReason,
   type FieldJob,
   type Schedule,
   type Alert,
@@ -105,7 +106,8 @@ export function FieldWorkspace() {
           draft.submit ||
           draft.conflict ||
           !draft.job.line.date ||
-          !draft.job.assignedIds.every(Boolean)
+          !draft.job.assignedIds.every(Boolean) ||
+          (needsAmendmentReason(draft.job) && !draft.job.amendmentReason?.trim())
         )
           continue;
         const started = Date.now();
@@ -356,10 +358,13 @@ export function FieldWorkspace() {
     const names = job.assignedIds.map(
       (user) => users.find((value) => value.id === user)?.technician || "",
     );
-    job.line.technician = names[0] || identity.actor.technicianName;
+    job.fields.completedByName = identity.actor.name;
+    job.line.technician =
+      job.fields.completedByName.trim() ||
+      names[0] ||
+      identity.actor.technicianName;
     job.line.secondaryTech = names[1] || "";
     job.line.additionalTechs = names.slice(2);
-    job.fields.completedByName = identity.actor.name;
     job.fields.completedByDesignation = "Technician";
     job.fields.startedDate = job.line.date;
     job.fields.completedDate = job.line.date;
@@ -382,6 +387,24 @@ export function FieldWorkspace() {
     setTab("entry");
   }
   async function upload(draft: LocalDraft, background = false) {
+    if (
+      needsAmendmentReason(draft.job) &&
+      !draft.job.amendmentReason?.trim()
+    ) {
+      if (!background)
+        setMessage("Describe the reason for this amendment.");
+      return;
+    }
+    const job =
+      !draft.job.line.technician.trim() && draft.job.fields.completedByName.trim()
+        ? {
+            ...draft.job,
+            line: {
+              ...draft.job.line,
+              technician: draft.job.fields.completedByName,
+            },
+          }
+        : draft.job;
     if (uploading.current || !key) return;
     uploading.current = true;
     if (!navigator.onLine) {
@@ -399,7 +422,7 @@ export function FieldWorkspace() {
         mail?: { state: string; error?: string };
       }>("/api/field/jobs", {
         id: draft.id,
-        job: draft.job,
+        job,
         revision: draft.revision,
         operationId: draft.operationId,
         submit: draft.submit,
@@ -549,7 +572,8 @@ export function FieldWorkspace() {
         !d.submit &&
         !d.conflict &&
         d.job.line.date &&
-        d.job.assignedIds.every(Boolean),
+        d.job.assignedIds.every(Boolean) &&
+        (!needsAmendmentReason(d.job) || !!d.job.amendmentReason?.trim()),
     );
     if (!draft) return;
     syncTimer.current = setTimeout(() => void upload(draft, true), 2000);
@@ -937,13 +961,23 @@ export function FieldWorkspace() {
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {[
-                    row.data.line.technician,
+                    row.data.line.technician || row.data.fields.completedByName,
                     row.data.line.secondaryTech,
                     ...(row.data.line.additionalTechs || []),
                   ]
                     .filter(Boolean)
                     .join(", ")}
                 </p>
+                {identity.actor.role === "admin" &&
+                  row.data.amendmentReason && (
+                    <p className="text-xs">
+                      Amendment: {row.data.amendmentReason}
+                      {row.data.amendedBy ? ` · ${row.data.amendedBy}` : ""}
+                      {row.data.amendedAt
+                        ? ` · ${new Date(row.data.amendedAt).toLocaleString()}`
+                        : ""}
+                    </p>
+                  )}
                 <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={() => setPreview(row)}>
                     View form
@@ -1221,7 +1255,10 @@ export function FieldWorkspace() {
             </Button>
             <CustomerFormPreview job={preview.data} />
             {preview.kind !== "legacy-job" && (
-              <JobRevisionLinks id={preview.id} />
+              <JobRevisionLinks
+                id={preview.id}
+                showAmendments={identity.actor.role === "admin"}
+              />
             )}
           </div>
         </div>
@@ -1411,14 +1448,27 @@ function AlertCreator({ users }: { users: TechnicianOption[] }) {
   );
 }
 
-function JobRevisionLinks({ id }: { id: string }) {
+function JobRevisionLinks({
+  id,
+  showAmendments,
+}: {
+  id: string;
+  showAmendments: boolean;
+}) {
   const [data, setData] = useState<{
     signed: { id: string; signedAt: string }[];
+    amendments?: {
+      time: string;
+      revision: number;
+      reason: string;
+      actorName: string;
+    }[];
     events: {
       time: string;
       revision: number;
       reason: string;
       action: string;
+      actorName?: string;
     }[];
   }>({ signed: [], events: [] });
   useEffect(() => {
@@ -1426,6 +1476,17 @@ function JobRevisionLinks({ id }: { id: string }) {
       .then(setData)
       .catch(() => {});
   }, [id]);
+  const amendments =
+    data.amendments?.length
+      ? data.amendments
+      : data.events
+          .filter((row) => row.reason)
+          .map((row) => ({
+            time: row.time,
+            revision: row.revision,
+            reason: row.reason,
+            actorName: row.actorName || "",
+          }));
   return (
     <section className="my-5 grid gap-3">
       <h3 className="font-semibold">Signed copies and changes</h3>
@@ -1440,11 +1501,16 @@ function JobRevisionLinks({ id }: { id: string }) {
           Signed copy · {new Date(row.signedAt).toLocaleString()}
         </a>
       ))}
-      {data.events.map((row, i) => (
-        <p key={i} className="text-xs text-muted-foreground">
-          Revision {row.revision} · {row.time} · {row.reason || row.action}
-        </p>
-      ))}
+      {showAmendments &&
+        amendments.map((row, i) => (
+          <p key={i} className="text-sm">
+            Revision {row.revision} · {row.actorName || "Team member"} ·{" "}
+            {new Date(row.time).toLocaleString()} · {row.reason}
+          </p>
+        ))}
+      {showAmendments && !amendments.length && (
+        <p className="text-xs text-muted-foreground">No amendments yet.</p>
+      )}
     </section>
   );
 }

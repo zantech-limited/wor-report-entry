@@ -34,9 +34,21 @@ export type FieldJob = {
   signedHash?: string;
   signedRevisionId?: string;
   amendmentReason?: string;
+  amendedBy?: string;
+  amendedAt?: string;
   savedOn?: string;
   savedAt?: string;
 };
+export function withLeadName(job: FieldJob, name: string): FieldJob {
+  return {
+    ...job,
+    fields: { ...job.fields, completedByName: name },
+    line: { ...job.line, technician: name },
+  };
+}
+export function needsAmendmentReason(job: Pick<FieldJob, "state">) {
+  return job.state === "submitted" || job.state === "amended";
+}
 export const emptyFields = () =>
   Object.fromEntries(
     CONTACT_FIELDS.map((field) => [field, ""]),

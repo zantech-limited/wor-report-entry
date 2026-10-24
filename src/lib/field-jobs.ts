@@ -145,6 +145,39 @@ export function validateFieldJob(value: unknown): asserts value is FieldJob {
     (typeof job.savedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(job.savedAt))
   )
     throw new Error("Invalid save time.");
+  if (
+    job.amendmentReason !== undefined &&
+    (typeof job.amendmentReason !== "string" || job.amendmentReason.length > 1000)
+  )
+    throw new Error("Describe the reason for this amendment.");
+}
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.keys(value as object)
+        .sort()
+        .map((key) => [
+          key,
+          stableValue((value as Record<string, unknown>)[key]),
+        ]),
+    );
+  return value ?? null;
+}
+function stableJob(job: FieldJob) {
+  const line = {
+    ...job.line,
+    no: "",
+    additionalTechs: job.line.additionalTechs ?? [],
+  };
+  return stableValue({
+    line,
+    fields: job.fields,
+    assignedIds: job.assignedIds,
+    scheduleId: job.scheduleId || "",
+    signature: job.signature ?? null,
+    technicianSignature: job.technicianSignature ?? null,
+  });
 }
 export async function saveFieldJob(
   actor: Actor,
@@ -243,11 +276,13 @@ export async function saveFieldJob(
         throw new Error("Include the scheduled technicians.");
       await updateRecord(schedule, { ...schedule.data, jobId: id });
     }
+    const printedName = input.fields.completedByName.trim();
     const line: WorkOrder = {
       ...blankLine(),
       ...input.line,
       id,
-      technician: users[0].name,
+      technician:
+        printedName || input.line.technician.trim() || users[0].name,
       secondaryTech: users[1]?.name || "",
       additionalTechs: users.slice(2).map((user) => user.name),
     };
@@ -275,9 +310,11 @@ export async function saveFieldJob(
       technicianSignature: input.technicianSignature,
       savedOn: input.savedOn,
       savedAt: input.savedAt,
+      amendmentReason: previous?.data.amendmentReason,
+      amendedBy: previous?.data.amendedBy,
+      amendedAt: previous?.data.amendedAt,
     };
-    const digest = hashSnapshot(data),
-      oldDigest = previous ? hashSnapshot(previous.data) : "";
+    const digest = hashSnapshot(data);
     const changedAfterSigning =
       !!previous?.data.signedHash && digest !== previous.data.signedHash;
     const freshSignature =
@@ -287,16 +324,6 @@ export async function saveFieldJob(
     if (changedAfterSigning && !freshSignature) {
       data.signature = undefined;
       data.state = "amended";
-    }
-    if (
-      actor.role === "admin" &&
-      previous &&
-      previous.data.state !== "draft" &&
-      digest !== oldDigest
-    ) {
-      if (!input.amendmentReason?.trim() || input.amendmentReason.length > 1000)
-        throw new Error("Describe the reason for this amendment.");
-      data.amendmentReason = input.amendmentReason.trim();
     }
     if (submit) {
       if (!line.customer.trim())
@@ -391,6 +418,19 @@ export async function saveFieldJob(
     const index = target.lines.findIndex((row) => row.id === id);
     line.no = index >= 0 ? target.lines[index].no : nextLineNo(target.lines);
     data.reportId = target.id;
+    const contentOf = (job: FieldJob) => JSON.stringify(stableJob(job));
+    const amending =
+      !!previous &&
+      previous.data.state !== "draft" &&
+      contentOf(previous.data) !== contentOf(data);
+    if (amending) {
+      const reason = input.amendmentReason?.trim() || "";
+      if (!reason || reason.length > 1000)
+        throw new Error("Describe the reason for this amendment.");
+      data.amendmentReason = reason;
+      data.amendedBy = actor.name;
+      data.amendedAt = new Date().toISOString();
+    }
     if (index >= 0) target.lines[index] = line;
     else
       target.lines = [
@@ -407,15 +447,20 @@ export async function saveFieldJob(
     if (previous)
       await insertRecord("job-history", previous.ownerId, {
         jobId: id,
-        revision: previous.revision,
+        revision: saved.revision,
         snapshot: previous.data,
         actor: actor.id,
+        actorName: actor.name,
+        at: data.amendedAt || new Date().toISOString(),
+        reason: amending ? data.amendmentReason || "" : "",
       });
     await insertRecord("audit", actor.id, {
       action: previous ? "job.updated" : "job.created",
       jobId: id,
       revision: saved.revision,
-      reason: data.amendmentReason || "",
+      reason: amending ? data.amendmentReason || "" : "",
+      actorName: actor.name,
+      at: data.amendedAt || new Date().toISOString(),
     });
     if (actor.role === "admin" && previous)
       for (const user of new Set([

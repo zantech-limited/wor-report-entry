@@ -9,6 +9,8 @@ import {
 } from "@/lib/model";
 import {
   customerSnapshot,
+  needsAmendmentReason,
+  withLeadName,
   type FieldJob,
   type ContactFields,
 } from "@/lib/field-model";
@@ -48,6 +50,11 @@ export function FieldJobEditor({
     [error, setError] = useState("");
   useEffect(() => setReviewed(false), [job.line.wor]);
   function change(next: FieldJob) {
+    if (!next.line.technician.trim() && next.fields.completedByName.trim())
+      next = {
+        ...next,
+        line: { ...next.line, technician: next.fields.completedByName },
+      };
     setReviewed(false);
     const content = (value: FieldJob) =>
       JSON.stringify({ ...customerSnapshot(value), signature: null });
@@ -70,6 +77,10 @@ export function FieldJobEditor({
     change(next);
   }
   function detail(field: keyof ContactFields, value: string) {
+    if (field === "completedByName") {
+      change(withLeadName(job, value));
+      return;
+    }
     change({ ...job, fields: { ...job.fields, [field]: value } });
   }
   const input = (label: string, field: keyof WorkOrder, type = "text") => (
@@ -141,7 +152,7 @@ export function FieldJobEditor({
       assignedIds: ids,
       line: {
         ...job.line,
-        technician: names[0] || "",
+        technician: job.fields.completedByName.trim() || names[0] || "",
         secondaryTech: names[1] || "",
         additionalTechs: names.slice(2),
       },
@@ -155,18 +166,29 @@ export function FieldJobEditor({
       );
       return;
     }
+    if (
+      needsAmendmentReason(job) &&
+      !job.amendmentReason?.trim()
+    ) {
+      setError("Describe the reason for this amendment.");
+      return;
+    }
     if (!reviewed || !job.signature) {
       setError("Review the form and capture the customer's signature first.");
       return;
     }
     setSigning(true);
+    const signingJob =
+      !job.line.technician.trim() && job.fields.completedByName.trim()
+        ? withLeadName(job, job.fields.completedByName)
+        : job;
     try {
       const digest = await crypto.subtle.digest(
         "SHA-256",
-        new TextEncoder().encode(JSON.stringify(customerSnapshot(job))),
+        new TextEncoder().encode(JSON.stringify(customerSnapshot(signingJob))),
       );
       onChange({
-        ...job,
+        ...signingJob,
         signedHash: [...new Uint8Array(digest)]
           .map((value) => value.toString(16).padStart(2, "0"))
           .join(""),
@@ -218,7 +240,9 @@ export function FieldJobEditor({
               <h3 className="font-semibold">Technicians</h3>
               <p className="text-xs text-muted-foreground">
                 Up to six technicians. Everyone assigned can see this job in
-                their monthly history. The lead technician edits it.
+                their monthly history. The lead technician edits it. Tech name
+                on the form follows the completed-by printed name, and either
+                field can be edited.
               </p>
               {job.assignedIds.map((id, index) => (
                 <div key={index} className="flex items-end gap-2">
@@ -440,6 +464,11 @@ export function FieldJobEditor({
             {contact("Date completed", "completedDate", "date")}
             {input("Time completed", "departureTime", "time")}
             {contact("Completed by: printed name", "completedByName")}
+            <p className="text-xs text-muted-foreground sm:col-span-2">
+              Tech name on the form, the saved work order, the PDF and the
+              workbook use this printed name. Change either field and the other
+              follows.
+            </p>
             {contact("Technician designation", "completedByDesignation")}
             {contact("Approved by: customer printed name", "approvedByName")}
             {contact("Customer designation", "approvedByDesignation")}
@@ -474,21 +503,32 @@ export function FieldJobEditor({
             I reviewed the customer form and recipient email with the customer.
             This version is ready for upload and a customer copy.
           </label>
-          {actor.role === "admin" && (
+          {actor.role === "admin" && needsAmendmentReason(job) && (
             <label className="grid gap-1 text-sm">
               Reason for amendment
               <Input
+                required
+                aria-required="true"
+                maxLength={1000}
                 value={job.amendmentReason || ""}
                 onChange={(e) =>
                   change({ ...job, amendmentReason: e.target.value })
                 }
               />
+              <span className="text-xs text-muted-foreground">
+                Required before this submitted work order can be saved. The
+                reason is kept with your name and the time in the admin history.
+              </span>
             </label>
           )}
           {!readOnly && (
             <Button
               onClick={() => void ready()}
-              disabled={signing || !reviewed}
+              disabled={
+                signing ||
+                !reviewed ||
+                (needsAmendmentReason(job) && !job.amendmentReason?.trim())
+              }
             >
               {signing ? "Preparing…" : "Mark signed version ready for upload"}
             </Button>

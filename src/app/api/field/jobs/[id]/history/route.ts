@@ -19,19 +19,38 @@ export async function GET(
         revision: number;
         reason: string;
         action: string;
-      }>("audit");
+        actorName?: string;
+        at?: string;
+      }>("audit"),
+      history = await records<{
+        jobId: string;
+        revision: number;
+        reason?: string;
+        actorName?: string;
+        at?: string;
+      }>("job-history");
+    const amendments = history
+      .filter((item) => item.data.jobId === id && item.data.reason?.trim())
+      .map((item) => ({
+        time: item.data.at || item.updatedAt,
+        revision: item.data.revision,
+        reason: item.data.reason || "",
+        actorName: item.data.actorName || "",
+      }));
     return Response.json(
       {
         signed: signed
           .filter((item) => item.data.jobId === id)
           .map((item) => ({ id: item.id, signedAt: item.data.signedAt })),
+        amendments,
         events: events
           .filter((item) => item.data.jobId === id)
           .map((item) => ({
-            time: item.updatedAt,
+            time: item.data.at || item.updatedAt,
             revision: item.data.revision,
             reason: item.data.reason,
             action: item.data.action,
+            actorName: item.data.actorName || "",
           })),
       },
       { headers: { "Cache-Control": "private, no-store" } },

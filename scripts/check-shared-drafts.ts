@@ -5,7 +5,8 @@ import { auth, currentActor } from "../src/lib/accounts";
 import { database } from "../src/lib/storage";
 import { emptyJob } from "../src/lib/field-model";
 import { hashSnapshot, saveFieldJob, visibleJobs } from "../src/lib/field-jobs";
-import { getSuggestions } from "../src/lib/db";
+import { getReport, getSuggestions } from "../src/lib/db";
+import { formFields, formValue } from "../src/lib/form-layout";
 import { linkedTechnicianIdentities } from "../src/lib/technician-identity";
 import { processMailQueue } from "../src/lib/mail-queue";
 import { record, records } from "../src/lib/records";
@@ -13,6 +14,11 @@ import { withAccountMail } from "../src/lib/smtp";
 
 async function main() {
   assert(process.env.DATA_DIR?.includes(".checks"), "Use an isolated .checks database.");
+  const techField = formFields.find((field) => field.label === "Technicians");
+  assert(techField);
+  const namedPreview = emptyJob("00000000-0000-4000-8000-000000000001");
+  namedPreview.fields.completedByName = "Timothy Adams";
+  assert.equal(formValue(namedPreview, techField), "Timothy Adams");
   const db = await database();
   await (await getMigrations(auth().options)).runMigrations();
   await db.query("INSERT INTO meta (key,value) VALUES (?,?)", ["accounts-ready", "1"]);
@@ -104,6 +110,49 @@ async function main() {
   const mail = (await records<{ state: string; lastError?: string }>("customer-mail"))[0];
   assert.equal(mail.data.state, "failed");
   assert.match(mail.data.lastError || "", /SMTP is not configured/);
+  const namedId = randomUUID();
+  const named = emptyJob(namedId);
+  Object.assign(named.line, {
+    date: "2026-10-23",
+    customer: "Printed tech customer",
+    location: "Site A",
+    arrivalTime: "08:00",
+    departureTime: "09:00",
+    technician: "",
+  });
+  named.fields.completedByName = "Timothy Adams";
+  named.assignedIds = [actor.id];
+  await saveFieldJob(actor, namedId, named, 0, randomUUID(), false);
+  const namedRow = (await record<typeof named>(namedId))!;
+  assert.equal(namedRow.data.line.technician, "Timothy Adams");
+  const workbook = await getReport(namedRow.data.reportId);
+  assert.equal(
+    workbook?.lines.find((line) => line.id === namedId)?.technician,
+    "Timothy Adams",
+  );
+  const amended = structuredClone(signed);
+  amended.line.comments = "Corrected internal note";
+  await assert.rejects(
+    saveFieldJob(actor, id, amended, 2, randomUUID(), false),
+    /Describe the reason/,
+  );
+  amended.amendmentReason = "Correct the internal note";
+  await saveFieldJob(actor, id, amended, 2, randomUUID(), false);
+  const history = await records<{
+    jobId: string;
+    reason?: string;
+    actorName?: string;
+    at?: string;
+  }>("job-history");
+  const entry = history.find(
+    (row) => row.data.jobId === id && row.data.reason === "Correct the internal note",
+  );
+  assert(entry);
+  assert.equal(entry.data.actorName, "Timothy Adams");
+  assert.match(entry.data.at || "", /^\d{4}-\d{2}-\d{2}T/);
+  const amendedRow = (await record<typeof signed>(id))!;
+  assert.equal(amendedRow.data.amendedBy, "Timothy Adams");
+  assert.equal(amendedRow.data.line.technician, "Timothy");
   console.log("Shared drafts, technician history, and mail failure checks passed.");
 }
 
