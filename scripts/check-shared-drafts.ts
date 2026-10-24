@@ -7,6 +7,7 @@ import { emptyJob } from "../src/lib/field-model";
 import { hashSnapshot, legacyHashSnapshot, saveFieldJob, visibleJobs } from "../src/lib/field-jobs";
 import { getReport, getSuggestions } from "../src/lib/db";
 import { formFields, formValue } from "../src/lib/form-layout";
+import { currentDeskMonth, deskMonthLabel, shiftDeskMonth } from "../src/lib/desk-month";
 import { linkedTechnicianIdentities } from "../src/lib/technician-identity";
 import { processMailQueue } from "../src/lib/mail-queue";
 import { record, records } from "../src/lib/records";
@@ -14,6 +15,11 @@ import { withAccountMail } from "../src/lib/smtp";
 
 async function main() {
   assert(process.env.DATA_DIR?.includes(".checks"), "Use an isolated .checks database.");
+  assert.equal(shiftDeskMonth("2026-01", -1), "2025-12");
+  assert.equal(shiftDeskMonth("2026-12", 1), "2027-01");
+  assert.equal(deskMonthLabel("2026-10"), "October 2026");
+  assert.equal(currentDeskMonth(new Date("2026-11-01T03:30:00Z")), "2026-10");
+  assert.equal(currentDeskMonth(new Date("2026-11-01T04:30:00Z")), "2026-11");
   const techField = formFields.find((field) => field.label === "Technicians");
   assert(techField);
   const namedPreview = emptyJob("00000000-0000-4000-8000-000000000001");

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { deskApi, todayLocal } from "@/lib/client-api";
+import { currentDeskMonth, deskMonthLabel, shiftDeskMonth } from "@/lib/desk-month";
 import {
   emptyJob,
   needsAmendmentReason,
@@ -32,6 +33,59 @@ type Identity = { actor: Actor; database: string };
 const control = "min-h-11 rounded-lg border bg-background px-3 py-2 text-base";
 const alertMessage =
   /fail|could not|conflict|error|invalid|offline|unavailable|sign in/i;
+function WorkMonthNav({
+  month,
+  onMonth,
+  count,
+  busy,
+  role,
+}: {
+  month: string;
+  onMonth: (month: string) => void;
+  count: number;
+  busy: boolean;
+  role: string;
+}) {
+  const current = currentDeskMonth();
+  const label = deskMonthLabel(month);
+  const scope =
+    role === "tech"
+      ? "You see work orders assigned to you."
+      : "You see every technician's work orders.";
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Work month">
+        <Button type="button" variant="outline" onClick={() => onMonth(shiftDeskMonth(month, -1))}>
+          Previous
+        </Button>
+        <h2 className="min-w-44 text-center text-lg font-semibold">{label}</h2>
+        <Button type="button" variant="outline" onClick={() => onMonth(shiftDeskMonth(month, 1))}>
+          Next
+        </Button>
+        <Button
+          type="button"
+          variant={month === current ? "default" : "outline"}
+          aria-pressed={month === current}
+          onClick={() => onMonth(current)}
+        >
+          This month
+        </Button>
+        <Input
+          type="month"
+          aria-label="Jump to month"
+          value={month}
+          onChange={(event) => {
+            if (/^\d{4}-(0[1-9]|1[0-2])$/.test(event.target.value))
+              onMonth(event.target.value);
+          }}
+        />
+      </div>
+      <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
+        {busy ? "Loading work orders…" : `${count} work orders in ${label}. ${scope}`}
+      </p>
+    </div>
+  );
+}
 function deviceLabel() {
   const stored = localStorage.getItem("zantech-device-label");
   if (stored) return stored;
@@ -51,7 +105,7 @@ export function FieldWorkspace() {
   const [identity, setIdentity] = useState<Identity>(),
     [key, setKey] = useState<CryptoKey>(),
     [pin, setPin] = useState(""),
-    [month, setMonth] = useState(todayLocal().slice(0, 7)),
+    [month, setMonth] = useState(currentDeskMonth),
     [online, setOnline] = useState(true),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
@@ -730,9 +784,13 @@ export function FieldWorkspace() {
             </p>
           )}
         </div>
-        <p className="text-sm text-muted-foreground" role="status">
-          {`${jobs.length} work orders in this month.`}
-        </p>
+        <WorkMonthNav
+          month={month}
+          onMonth={setMonth}
+          count={jobs.length}
+          busy={false}
+          role={identity.actor.role}
+        />
         <div className="grid gap-3 sm:grid-cols-2">
           {jobs.map((row) => (
             <article key={row.id} className="grid gap-2 rounded-xl border bg-card p-4">
@@ -884,17 +942,20 @@ export function FieldWorkspace() {
       {tab === "jobs" && (
         <section className="grid gap-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <label className="grid gap-1 text-sm">
-              Work month
-              <Input
-                type="month"
-                value={month}
-                onChange={(e) => {
-                  if (/^\d{4}-\d{2}$/.test(e.target.value))
-                    setMonth(e.target.value);
-                }}
-              />
-            </label>
+            <WorkMonthNav
+              month={month}
+              onMonth={setMonth}
+              count={
+                jobs.length +
+                drafts.filter(
+                  (draft) =>
+                    draft.job.line.date.startsWith(month) &&
+                    !jobs.some((row) => row.id === draft.id),
+                ).length
+              }
+              busy={busy}
+              role={identity.actor.role}
+            />
             <div className="flex gap-2">
               <Button
                 variant="outline"
@@ -908,13 +969,6 @@ export function FieldWorkspace() {
               )}
             </div>
           </div>
-          <p className="text-sm text-muted-foreground" role="status">
-            {busy
-              ? "Loading work orders…"
-              : identity.actor.role === "tech"
-                ? `${jobs.length} work orders in this month. Shared jobs appear for every assigned technician.`
-                : `${jobs.length} work orders in this month, including every technician's jobs.`}
-          </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {drafts
               .filter(
