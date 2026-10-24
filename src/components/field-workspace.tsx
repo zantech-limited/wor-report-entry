@@ -1595,7 +1595,7 @@ function JobRevisionLinks({
       {data.signed.map((row) => (
         <a
           key={row.id}
-          className="text-sm underline"
+          className="inline-flex min-h-11 items-center text-sm underline"
           target="_blank"
           rel="noreferrer"
           href={`/api/field/jobs/${id}/pdf?revision=${row.id}`}
