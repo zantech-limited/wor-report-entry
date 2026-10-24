@@ -305,59 +305,63 @@ async function main() {
   secretJob.fields.requesterEmail = "hidden@example.test";
   await saveFieldJob(otherActor, secretId, secretJob, 0, randomUUID(), false);
   assert.equal(actor.technicianName, "Tech 0");
-  const techView = await suggestionsForActor(actor);
-  assert.equal(techView.customers.includes("Scoped Customer"), true);
-  assert.equal(techView.customers.includes("Walk In Client"), true);
-  assert.equal(techView.customers.includes("Hidden Customer"), false);
-  assert.deepEqual(techView.locationsByCustomer["Scoped Customer"], ["North Site"]);
-  assert.deepEqual(techView.locationsByCustomer["Walk In Client"], ["Van"]);
   assert.equal(
-    techView.machinesByCustomer["Scoped Customer"]?.some(
-      (machine) => machine.serialNo === "ABC1234" && machine.modelNo === "Bizhub 227",
-    ),
-    true,
+    (await visibleJobs(actor, "2026-10")).some((row) => row.id === secretId),
+    false,
+    "A technician still cannot open another technician's work order",
   );
   assert.equal(
-    JSON.stringify(techView).includes("South Site") ||
-      JSON.stringify(techView).includes("HID9999") ||
-      JSON.stringify(techView).includes("Hidden Customer") ||
-      JSON.stringify(techView).includes("99 Secret Lane"),
+    (await visibleJobs(otherActor, "2026-10")).some((row) => row.id === walkInId),
     false,
   );
-  assert.deepEqual(techView.contactsByCustomer["Scoped Customer"], {
-    addresses: ["12 Field Road"],
-    phones: ["555-0100"],
-    requesters: ["Ada Request"],
-    emails: ["ada@example.test"],
-  });
+  const techView = await suggestionsForActor(actor);
   const otherView = await suggestionsForActor(otherActor);
-  assert.equal(otherView.customers.includes("Hidden Customer"), true);
-  assert.equal(otherView.customers.includes("Walk In Client"), false);
-  assert.equal(otherView.locationsByCustomer["Scoped Customer"]?.includes("North Site"), false);
-  assert.equal(
-    otherView.contactsByCustomer["Hidden Customer"]?.addresses.includes("99 Secret Lane"),
-    true,
-  );
-  assert.equal(JSON.stringify(otherView).includes("12 Field Road"), false);
   const managerView = await suggestionsForActor({ ...actor, role: "manager" });
-  for (const name of ["Hidden Customer", "Scoped Customer", "Walk In Client"])
-    assert.equal(managerView.customers.includes(name), true, name);
-  assert.equal(managerView.locationsByCustomer["Scoped Customer"]?.includes("South Site"), true);
-  assert.equal(managerView.locationsByCustomer["Scoped Customer"]?.includes("North Site"), true);
-  assert.equal(
-    managerView.contactsByCustomer["Hidden Customer"]?.addresses.includes("99 Secret Lane"),
-    true,
-  );
+  for (const view of [techView, otherView, managerView]) {
+    for (const name of ["Hidden Customer", "Scoped Customer", "Walk In Client"])
+      assert.equal(view.customers.includes(name), true, name);
+    assert.equal(view.locationsByCustomer["Scoped Customer"]?.includes("North Site"), true);
+    assert.equal(view.locationsByCustomer["Scoped Customer"]?.includes("South Site"), true);
+    assert.equal(view.locationsByCustomer["Hidden Customer"]?.includes("Secret Site"), true);
+    assert.equal(view.locationsByCustomer["Walk In Client"]?.includes("Van"), true);
+    assert.equal(
+      view.machinesByCustomer["Scoped Customer"]?.some(
+        (machine) => machine.serialNo === "ABC1234" && machine.modelNo === "Bizhub 227",
+      ),
+      true,
+    );
+    assert.equal(
+      view.machinesByCustomer["Scoped Customer"]?.some(
+        (machine) => machine.serialNo === "HID9999" && machine.modelNo === "Secret Model",
+      ),
+      true,
+    );
+    assert.deepEqual(view.contactsByCustomer["Scoped Customer"], {
+      addresses: ["12 Field Road"],
+      phones: ["555-0100"],
+      requesters: ["Ada Request"],
+      emails: ["ada@example.test"],
+    });
+    assert.equal(
+      view.contactsByCustomer["Hidden Customer"]?.addresses.includes("99 Secret Lane"),
+      true,
+    );
+    assert.equal(
+      view.contactsByCustomer["Walk In Client"]?.addresses.includes("1 Walk Street"),
+      true,
+    );
+  }
   const picked = commitFieldCustomer(
     emptyJob(randomUUID()),
     "",
-    "scoped customer",
+    "walk in client",
     techView,
     emptyFieldTouch(),
   );
-  assert.equal(picked.job.line.customer, "Scoped Customer");
-  assert.equal(picked.job.line.location, "North Site");
+  assert.equal(picked.job.line.customer, "Walk In Client");
+  assert.equal(picked.job.line.location, "Van");
   assert.equal(picked.job.fields.clientAddress, "");
+  assert.equal(picked.job.fields.phone, "");
   const several = commitFieldCustomer(
     emptyJob(randomUUID()),
     "",
@@ -405,7 +409,7 @@ async function main() {
   ]);
   assert.equal(await currentActor(new Headers({ cookie: cookies })), null);
   console.log(
-    "Accounts/field checks passed: pending roles, real sessions, six-person history/hours, month isolation, idempotency, conflicts, signatures, revocation, and scoped field history.",
+    "Accounts/field checks passed: pending roles, real sessions, six-person history/hours, month isolation, idempotency, conflicts, signatures, revocation, shared suggestion values, and unchanged work-order visibility.",
   );
   process.exit(0);
 }

@@ -2,8 +2,6 @@ import type { Actor } from "./accounts";
 import { customerSettings } from "./customers";
 import { getSuggestions } from "./db";
 import type { FieldJob } from "./field-model";
-import { canSeeJob, seesAllWorkOrders } from "./field-jobs";
-import { crewIncludes } from "./crew";
 import type { FieldSuggestions, CustomerContacts } from "./field-suggestion-model";
 import {
   canonicalize,
@@ -42,13 +40,14 @@ function sortedUnique(values: string[]) {
 }
 
 /**
- * History the field form can offer. Oversight roles see the same customer,
- * site and machine lists as monthly entry. Technicians only see customers,
- * sites, serials and contacts from work orders they are allowed to open.
+ * Suggestion values for the field form. Every signed-in role sees customers,
+ * sites, machines and contacts from every monthly entry and every field work
+ * order. Opening a work order is still limited by canSeeJob.
  */
 export async function suggestionsForActor(
   actor: Actor,
 ): Promise<FieldSuggestions> {
+  if (!actor.id) throw new Error("Sign in with an approved account.");
   const db = await database();
   const [full, jobs, reportRows, settings] = await Promise.all([
     getSuggestions(),
@@ -57,9 +56,7 @@ export async function suggestionsForActor(
     customerSettings(),
   ]);
   const visits: Visit[] = [];
-  const oversight = seesAllWorkOrders(actor.role);
   for (const row of jobs) {
-    if (!oversight && !canSeeJob(actor, row)) continue;
     const job = row.data;
     visits.push({
       customer: job.line.customer,
@@ -76,7 +73,6 @@ export async function suggestionsForActor(
     const lines = JSON.parse(String(source.lines)) as WorkOrder[];
     for (const line of lines) {
       if (isBlankLine(line)) continue;
-      if (!oversight && !crewIncludes(line, actor.technicianName)) continue;
       visits.push({
         customer: line.customer,
         location: line.location,
@@ -89,9 +85,7 @@ export async function suggestionsForActor(
       });
     }
   }
-  return oversight
-    ? mergeVisits(full, visits, settings)
-    : scopeVisits(full, visits, settings);
+  return mergeVisits(full, visits, settings);
 }
 
 function customerName(
@@ -117,72 +111,6 @@ function customerName(
 function locationName(customer: string, raw: string, full: Suggestions) {
   const sites = full.locationsByCustomer[customer] ?? [];
   return canonicalize(raw, sites);
-}
-
-function scopeVisits(
-  full: Suggestions,
-  visits: Visit[],
-  settings: Awaited<ReturnType<typeof customerSettings>>,
-): FieldSuggestions {
-  const customers: string[] = [];
-  const locations = new Map<string, string[]>();
-  const serials = new Map<string, Map<string, Visit>>();
-  const contacts = new Map<string, CustomerContacts>();
-  for (const visit of visits) {
-    const customer = customerName(visit.customer, full, settings);
-    if (!customer) continue;
-    if (!customers.some((name) => nameKey(name) === nameKey(customer)))
-      customers.push(customer);
-    const location = visit.location.trim()
-      ? locationName(customer, visit.location, full)
-      : "";
-    if (location) {
-      locations.set(
-        customer,
-        sortedUnique([...(locations.get(customer) ?? []), location]),
-      );
-    }
-    const serial = visit.serialNo.trim();
-    if (serial) {
-      const machines = serials.get(customer) ?? new Map<string, Visit>();
-      machines.set(serial.toLowerCase(), visit);
-      serials.set(customer, machines);
-    }
-    rememberContacts(contacts, customer, visit);
-  }
-  const locationsByCustomer: Record<string, string[]> = {};
-  const machinesByCustomer: Record<string, MachineRecord[]> = {};
-  for (const customer of customers) {
-    if (locations.has(customer))
-      locationsByCustomer[customer] = locations.get(customer)!;
-    const seen = serials.get(customer);
-    if (!seen) continue;
-    const history = full.machinesByCustomer[customer] ?? [];
-    const machines = history.filter((machine) =>
-      seen.has(machine.serialNo.toLowerCase()),
-    );
-    for (const [key, visit] of seen) {
-      if (machines.some((machine) => machine.serialNo.toLowerCase() === key))
-        continue;
-      const location = visit.location.trim()
-        ? locationName(customer, visit.location, full)
-        : "";
-      machines.push({
-        serialNo: visit.serialNo.trim(),
-        modelNo:
-          visit.modelNo.trim() === "Unknown Model" ? "" : visit.modelNo.trim(),
-        location,
-      });
-    }
-    machinesByCustomer[customer] = machines;
-  }
-  return {
-    customers: sortedUnique(customers),
-    locationsByCustomer,
-    techs: full.techs,
-    machinesByCustomer,
-    contactsByCustomer: contactRecord(contacts),
-  };
 }
 
 function mergeVisits(
