@@ -267,7 +267,7 @@ export function CustomerFormPreview({
               </button>
             ) : (
               <div key={index} style={style}>
-                {value || (field.key === "wor" ? "Syncs shortly" : "")}
+                {value || (field.key === "wor" ? "Pending" : "")}
               </div>
             );
           })}

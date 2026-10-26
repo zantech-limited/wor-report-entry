@@ -4,7 +4,7 @@ import {readFormLayout,publishFormLayout} from "../src/lib/form-layout-store";
 import {emptyJob,FORM_OPTIONS} from "../src/lib/field-model";
 import {createSession} from "../src/lib/admin-auth";
 import {POST} from "../src/app/api/admin/form-layout/route";
-import {nextRequestNumber,noteRequestNumber} from "../src/lib/request-number";
+import {formatWorkOrderNumber,nextRequestNumber,noteRequestNumber} from "../src/lib/request-number";
 import {database} from "../src/lib/storage";
 async function main(){
  assert(process.env.DATA_DIR?.includes(".checks"));
@@ -22,13 +22,15 @@ async function main(){
  const job=emptyJob("test");job.line.paymentMethod="Cash";job.line.slaType="Rental";job.line.serviceType="PM";
  assert.equal(formChoices.filter(c=>choiceSelected(job,c.label)).length,1);
  for(const option of FORM_OPTIONS){job.fields.serviceOption=option;assert.deepEqual(formChoices.filter(c=>choiceSelected(job,c.label)).map(c=>c.label),[option]);}
- const db=await database();const numbers=await Promise.all(Array.from({length:4},()=>db.transaction(()=>nextRequestNumber())));assert.equal(new Set(numbers).size,4);assert.deepEqual(numbers,["WRETO-16719","WRETO-16720","WRETO-16721","WRETO-16722"]);
+ const db=await database();assert.equal(formatWorkOrderNumber(1),"OWOR00001");assert.equal(formatWorkOrderNumber(100000),"OWOR100000");const numbers=await Promise.all(Array.from({length:4},()=>db.transaction(()=>nextRequestNumber())));assert.equal(new Set(numbers).size,4);assert.deepEqual([...numbers].sort(),["OWOR00001","OWOR00002","OWOR00003","OWOR00004"]);
  const base=emptyJob("service-option");
  const cash=selectServiceOption(base,"Cash");assert.equal(cash.line.paymentMethod,"Cash");assert.deepEqual(formChoices.filter(c=>choiceSelected(cash,c.label)).map(c=>c.label),["Cash"]);
  const charge=selectServiceOption(base,"Charge");assert.equal(charge.line.paymentMethod,"");assert.equal(choiceSelected(charge,"Charge"),true);assert.equal(formChoices.filter(c=>choiceSelected(charge,c.label)).length,1);
  const rental=selectServiceOption(base,"Rental");assert.equal(rental.line.slaType,"Rental");assert.equal(rental.line.paymentMethod,"No charge");
  await noteRequestNumber("WRETO-16730");
- assert.equal(await db.transaction(()=>nextRequestNumber()),"WRETO-16731");
+ assert.equal(await db.transaction(()=>nextRequestNumber()),"OWOR00005");
+ await noteRequestNumber("OWOR00030");
+ assert.equal(await db.transaction(()=>nextRequestNumber()),"OWOR00031");
  console.log("Layout checks passed: admin authorization, same-origin enforcement, persistence, revision conflicts, bounds, single choice and concurrent short numbers.");
  await db.close();
 }

@@ -154,6 +154,7 @@ export function FieldJobEditor({
     },
   };
   function line(field: keyof WorkOrder, value: string) {
+    if (field === "wor") return;
     const current = jobRef.current;
     if (String(current.line[field] ?? "") === value) return;
     const next = { ...current, line: { ...current.line, [field]: value } };
@@ -301,9 +302,17 @@ export function FieldJobEditor({
     <div className="grid gap-5">
       <div className="grid gap-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold">
-            {readOnly ? "Work order" : "Work order entry"}
-          </h2>
+          <div>
+            <h2 className="text-xl font-semibold">
+              {readOnly ? "Work order" : "Work order entry"}
+            </h2>
+            <p
+              id="field-work-order-number"
+              className="mt-1 font-mono text-sm font-semibold text-red-700"
+            >
+              {job.line.wor || "Pending"}
+            </p>
+          </div>
         </div>
         <CustomerFormPreview
           job={job}
@@ -325,7 +334,22 @@ export function FieldJobEditor({
                 phone and requester stay suggestions until you pick one.
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
-                {input("Request number", "wor")}
+                <label className="grid gap-1.5 text-sm">
+                  Work order number
+                  <Input
+                    id="field-wor"
+                    readOnly
+                    aria-readonly="true"
+                    value={job.line.wor}
+                    placeholder="Pending — assigned when this draft syncs"
+                    className="bg-muted"
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    {job.line.wor
+                      ? "Assigned by the desk. This number cannot be edited."
+                      : "Pending until this draft syncs."}
+                  </span>
+                </label>
                 {input("Work date", "date", "date")}
                 <SuggestInput
                   id="field-customer"

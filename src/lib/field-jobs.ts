@@ -1,9 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  nextRequestNumber,
-  noteRequestNumber,
-  requestNumberTaken,
-} from "./request-number";
+import { nextRequestNumber, requestNumberTaken } from "./request-number";
 import { database } from "./storage";
 import {
   records,
@@ -196,6 +192,14 @@ function stableJob(job: FieldJob) {
     technicianSignature: job.technicianSignature ?? null,
   });
 }
+async function allocateRequestNumber(id: string) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const wor = await nextRequestNumber();
+    if (!(await requestNumberTaken(wor, id))) return wor;
+  }
+  throw new Error("Work order number could not be allocated. Retry the upload.");
+}
+
 export async function saveFieldJob(
   actor: Actor,
   id: string,
@@ -244,6 +248,8 @@ export async function saveFieldJob(
         }
       }
     }
+    if (previous?.kind === "job-deleted")
+      throw new Error("Work order was deleted from the desk.");
     if (previous && (previous.kind !== "job" || !canSeeJob(actor, previous)))
       throw new Error("Work order not found.");
     if (previous && previous.revision !== revision)
@@ -310,19 +316,16 @@ export async function saveFieldJob(
         ? input.line.additionalTechs
         : users.slice(2).map((user) => user.name),
     };
-    if (!line.wor.trim()) {
-      if (submit)
-        throw new Error(
-          "Complete a draft sync before signing so the request number is included.",
-        );
-      line.wor = previous?.data.line.wor || (await nextRequestNumber());
-    } else if (line.wor !== previous?.data.line.wor) {
-      await noteRequestNumber(line.wor);
-      if (await requestNumberTaken(line.wor, id))
-        throw new Error(
-          "Conflict: that request number is already used. Clear it to assign the next number.",
-        );
-    }
+    const kept =
+      previous?.data.line.wor.trim() ||
+      legacySource?.lines.find((row) => row.id === id)?.wor.trim() ||
+      "";
+    if (kept) line.wor = kept;
+    else if (submit)
+      throw new Error(
+        "Complete a draft sync before signing so the request number is included.",
+      );
+    else line.wor = await allocateRequestNumber(id);
     const data: FieldJob = {
       line,
       fields: input.fields,
@@ -525,6 +528,91 @@ export async function saveFieldJob(
     return ack;
   });
 }
+
+/** Admin removal of a field work order from the desk Entry workbook. */
+export async function deleteFieldLineFromDesk(
+  actor: Actor,
+  reportId: string,
+  lineId: string,
+  confirmWor: unknown,
+) {
+  if (actor.role !== "admin")
+    throw new Error("Your role cannot delete a field work order.");
+  if (typeof confirmWor !== "string" || confirmWor.length > 80)
+    throw new Error("Enter the exact work order number to confirm deletion.");
+  if (!/^[a-f0-9-]{36}$/i.test(lineId) || !/^[a-f0-9-]{36}$/i.test(reportId))
+    throw new Error("Invalid work-order id.");
+  await whenReady();
+  const db = await database();
+  return db.transaction(async () => {
+    const job = await record<FieldJob>(lineId, true);
+    if (!job || job.kind !== "job")
+      throw new Error("Work order is not a field entry.");
+    const report = await getReport(reportId);
+    if (!report) throw new Error("That report is no longer saved.");
+    if (!report.lines.some((row) => row.id === lineId))
+      throw new Error("Work order is not in this month.");
+    const expected = job.data.line.wor;
+    if (!expected.trim())
+      throw new Error(
+        "Work order has no number yet. Open it in Field service.",
+      );
+    if (confirmWor !== expected)
+      throw new Error("Enter the exact work order number to confirm deletion.");
+    const now = new Date().toISOString();
+    await insertRecord("job-history", job.ownerId, {
+      jobId: lineId,
+      revision: job.revision,
+      snapshot: job.data,
+      actor: actor.id,
+      actorName: actor.name,
+      at: now,
+      reason: "Deleted from desk Entry",
+    });
+    await insertRecord("audit", actor.id, {
+      action: "job.deleted",
+      jobId: lineId,
+      revision: job.revision,
+      reason: "Deleted from desk Entry",
+      actorName: actor.name,
+      at: now,
+    });
+    for (const user of new Set(job.data.assignedIds))
+      await insertRecord("alert", user, {
+        text: `Admin deleted work order ${expected} from the desk.`,
+        urgent: false,
+        acknowledged: false,
+        sender: actor.name,
+      });
+    const saved = await withFieldProjection(() =>
+      saveReportChecked(
+        reportId,
+        { ...report, lines: report.lines.filter((row) => row.id !== lineId) },
+        "when-changed",
+      ),
+    );
+    await db.query(
+      "UPDATE desk_records SET kind = ?, data = ?, revision = ?, updated_at = ? WHERE id = ? AND kind = ?",
+      [
+        "job-deleted",
+        JSON.stringify({ ...job.data, deletedAt: now, deletedBy: actor.id }),
+        job.revision + 1,
+        now,
+        lineId,
+        "job",
+      ],
+    );
+    return { updatedAt: saved.updatedAt, wor: expected };
+  });
+}
+
+export async function fieldJobIds() {
+  const db = await database();
+  return (
+    await db.query("SELECT id FROM desk_records WHERE kind = ?", ["job"])
+  ).map((row) => String(row.id));
+}
+
 export async function visibleJobs(actor: Actor, month: string) {
   const jobs = await records<FieldJob>("job"),
     visible = jobs.filter(

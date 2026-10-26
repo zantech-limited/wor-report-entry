@@ -5,11 +5,11 @@ import { getMigrations } from "better-auth/db/migration";
 import { auth, currentActor } from "../src/lib/accounts";
 import { database } from "../src/lib/storage";
 import { emptyJob } from "../src/lib/field-model";
-import { saveFieldJob, visibleJobs, hashSnapshot } from "../src/lib/field-jobs";
-import { records, record } from "../src/lib/records";
+import { deleteFieldLineFromDesk, saveFieldJob, visibleJobs, hashSnapshot } from "../src/lib/field-jobs";
+import { records, record, recordsWhere } from "../src/lib/records";
 import { crewNames, excelCrewComments } from "../src/lib/crew";
 import { monthlyAnalysis } from "../src/lib/monthly-report";
-import { createBlankReport, listWorkEntries, saveReport } from "../src/lib/db";
+import { createBlankReport, getReport, listWorkEntries, saveReport, saveReportChecked } from "../src/lib/db";
 import { blankLine } from "../src/lib/model";
 import { suggestionsForActor } from "../src/lib/field-suggestions";
 import {
@@ -195,7 +195,9 @@ async function main() {
   shortJob.fields.startedDate = shortJob.fields.completedDate = "2026-10-22";
   shortJob.line.arrivalTime = "08:00";
   const firstSync = await saveFieldJob(actor,shortId,shortJob,0,randomUUID(),false);
-  assert.match(firstSync.requestNumber!, /^WRETO-\d{5,}$/);
+  assert.match(firstSync.requestNumber!, /^OWOR\d{5,}$/);
+  assert.notEqual(stored.data.line.wor, job.line.wor);
+  assert.match(stored.data.line.wor, /^OWOR\d{5}$/);
   const shared = (await record<typeof shortJob>(shortId))!;
   assert.equal(shared.data.line.wor, firstSync.requestNumber);
   shared.data.fields.workRequired = "Changed from another device";
@@ -403,6 +405,66 @@ async function main() {
   );
   assert.equal(unknown.job.line.serialNo, "ZZZ999");
   assert.equal(unknown.job.line.modelNo, "");
+  const fieldRow = (await record<typeof shortJob>(shortId))!;
+  const reportId = fieldRow.data.reportId;
+  const beforeDelete = await getReport(reportId);
+  assert(beforeDelete);
+  await assert.rejects(
+    saveReportChecked(reportId, {
+      ...beforeDelete,
+      lines: beforeDelete.lines.filter((row) => row.id !== shortId),
+    }),
+    /Field service/,
+  );
+  assert.equal((await getReport(reportId))!.lines.some((row) => row.id === shortId), true);
+  await assert.rejects(
+    deleteFieldLineFromDesk(
+      { ...actor, role: "tech" },
+      reportId,
+      shortId,
+      fieldRow.data.line.wor,
+    ),
+    /role cannot/,
+  );
+  await assert.rejects(
+    deleteFieldLineFromDesk(
+      { ...actor, role: "manager" },
+      reportId,
+      shortId,
+      fieldRow.data.line.wor,
+    ),
+    /role cannot/,
+  );
+  await assert.rejects(
+    deleteFieldLineFromDesk(adminActor, reportId, shortId, "OWOR00000"),
+    /exact work order number/,
+  );
+  const removed = await deleteFieldLineFromDesk(
+    adminActor,
+    reportId,
+    shortId,
+    fieldRow.data.line.wor,
+  );
+  assert.equal(removed.wor, fieldRow.data.line.wor);
+  assert.equal(
+    (await getReport(reportId))!.lines.some((row) => row.id === shortId),
+    false,
+  );
+  assert.equal((await record(shortId))!.kind, "job-deleted");
+  assert.ok(
+    (
+      await recordsWhere<{ action: string }>("audit", "jobId", [shortId])
+    ).some((row) => row.data.action === "job.deleted"),
+  );
+  assert.ok(
+    (
+      await recordsWhere<{ reason?: string }>("job-history", "jobId", [shortId])
+    ).some((row) => row.data.reason === "Deleted from desk Entry"),
+  );
+  await assert.rejects(
+    saveFieldJob(adminActor, shortId, fieldRow.data, 0, randomUUID(), false),
+    /deleted from the desk/,
+  );
   await db.query("UPDATE desk_user SET status = ? WHERE id = ?", [
     "archived",
     actor.id,

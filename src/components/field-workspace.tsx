@@ -1035,7 +1035,7 @@ export function FieldWorkspace() {
                   </h2>
                   <p className="text-sm">
                     {draft.job.line.location} ·{" "}
-                    {draft.job.line.wor || "Number assigned on sync"}
+                    {draft.job.line.wor || "Pending"}
                   </p>
                   <Button
                     variant="outline"
