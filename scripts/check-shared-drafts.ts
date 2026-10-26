@@ -298,7 +298,7 @@ async function main() {
   assert.equal(JSON.stringify(debug).includes(actor.email), false);
   assert.ok(debug.devices.some((row) => row.device === "computer abcd" && row.count >= 1));
   assert.ok(debug.events.some((row) => row.kind === "review" && /signed preview/.test(row.message) && row.reference.length === 8));
-  assert.match(debug.serviceWorker, /zantech-shell-v065/);
+  assert.match(debug.serviceWorker, /zantech-shell-v066/);
   assert.equal(debug.template, "present");
   console.log("Shared drafts, technician history, and mail failure checks passed.");
 }

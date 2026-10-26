@@ -18,7 +18,7 @@ import type { PublishedFormLayout } from "@/lib/form-layout-store";
 
 const sample = emptyJob("layout-preview");
 Object.assign(sample.line, {
-  wor: "WRETO-16719",
+  wor: "OWOR00001",
   customer: "Sample customer",
   technician: "Sample technician",
   location: "Port of Spain",

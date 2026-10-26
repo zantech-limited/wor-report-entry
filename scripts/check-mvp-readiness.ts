@@ -81,7 +81,7 @@ try {
   assert.equal(safeMailHeader("  Zantech\twork order  "), "Zantech work order");
   assert.equal(safeMailHeader(""), "");
   const worker = readFileSync("public/sw.js", "utf8");
-  assert.match(worker, /zantech-shell-v065/);
+  assert.match(worker, /zantech-shell-v066/);
   assert.match(worker, /cacheEach/);
   assert.match(worker, /SKIP_WAITING/);
   const setup = readFileSync("src/components/pwa-setup.tsx", "utf8");

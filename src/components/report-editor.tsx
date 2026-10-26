@@ -69,12 +69,14 @@ export function ReportEditor({
   initialIndex = 0,
   months = [],
   initialParts = [],
+  initialFieldLineIds = [],
 }: {
   initial: Report;
   initialSuggestions: Suggestions;
   initialIndex?: number;
   months?: ReportSummary[];
   initialParts?: Part[];
+  initialFieldLineIds?: string[];
 }) {
   const router = useRouter();
   const [report, setReport] = useState(() => ({...initial, lines: initial.lines.map(line => ({...line, copycount: formatCopycount(line.copycount)}))}));
@@ -94,9 +96,19 @@ export function ReportEditor({
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [addedCount, setAddedCount] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [fieldLineIds, setFieldLineIds] = useState(
+    () => new Set(initialFieldLineIds),
+  );
+  const [typedWor, setTypedWor] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [focusLine, setFocusLine] = useState(false);
 
   const latest = useRef(report);
+  const serverCopy = useRef(report);
+  const fieldLineIdsRef = useRef(fieldLineIds);
+  const leaveReadyRef = useRef<() => Promise<boolean>>(async () => true);
+  fieldLineIdsRef.current = fieldLineIds;
   const suggestionsRef = useRef(suggestions);
   const indexRef = useRef(index);
   const dirty = useRef(false);
@@ -144,13 +156,14 @@ export function ReportEditor({
       try{
         const response=await fetch(`/api/reports/${initial.id}`,{cache:"no-store",signal:controller.signal});
         if(!response.ok)throw new Error("Could not read the current workbook.");
-        const body=await readJsonResponse(response) as {report:Report};
+        const body=await readJsonResponse(response) as {report:Report; fieldLineIds?: string[]};
         if(!live)return false;
+        if(Array.isArray(body.fieldLineIds)) setFieldLineIds(new Set(body.fieldLineIds));
         const fresh=body.report;
         if(fresh.updatedAt!==latest.current.updatedAt){
           if(dirty.current){preserveDraft(latest.current);setSaveError("Save conflict: the saved workbook is newer than this page. Download your unsaved copy before reloading.");setStatus("error");return false;}
           const formatted={...fresh,lines:fresh.lines.map(row=>({...row,copycount:formatCopycount(row.copycount)}))};
-          latest.current=formatted;setReport(formatted);
+          latest.current=formatted;serverCopy.current=structuredClone(formatted);setReport(formatted);
         }
         return true;
       }catch{
@@ -219,14 +232,12 @@ export function ReportEditor({
         return;
       event.preventDefault();
       event.stopPropagation();
-      void persist().then((saved) => {
+      void leaveReadyRef.current().then((saved) => {
         if (saved) router.push(url.pathname + url.search + url.hash);
       });
     };
     document.addEventListener("click", followLink, true);
     return () => document.removeEventListener("click", followLink, true);
-    // persist reads the current report through refs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   useEffect(() => {
@@ -317,16 +328,51 @@ export function ReportEditor({
           }
           if (body.suggestions) setSuggestions(body.suggestions);
           if(body.updatedAt){latest.current={...latest.current,updatedAt:body.updatedAt};setReport(current=>({...current,updatedAt:body.updatedAt!}));}
+          serverCopy.current = structuredClone({ ...snapshot, updatedAt: body.updatedAt || snapshot.updatedAt });
           if(!dirty.current&&!localRecoveryBlocked.current)clearLocalDraft(snapshot.id);
           if (!dirty.current) delayedUntil.current = 0;
           setStatus(dirty.current ? "unsaved" : "saved");
           if (!force) break;
         } catch (cause) {
-          failed = true;
           const message =
             cause instanceof Error
               ? cause.message
               : "The report could not be saved.";
+          if (/use Field service to amend mobile work orders/.test(message)) {
+            const removed = serverCopy.current.lines.filter(
+              (old) => !snapshot.lines.some((row) => row.id === old.id),
+            );
+            const restored = structuredClone(serverCopy.current);
+            latest.current = restored;
+            setReport(restored);
+            dirty.current = false;
+            setStatus("saved");
+            setSaveError(null);
+            clearLocalDraft(restored.id);
+            if (timer.current) {
+              window.clearTimeout(timer.current);
+              timer.current = null;
+            }
+            setConfirmDelete(false);
+            toast.error(
+              "That change was not saved. Field work orders stay on the desk, and you can keep working or leave this page.",
+            );
+            if (removed.length === 1) {
+              const lineId = removed[0].id;
+              setFieldLineIds((current) => new Set(current).add(lineId));
+              setTypedWor("");
+              setDeleteError("");
+              setIndex(
+                Math.max(
+                  0,
+                  restored.lines.findIndex((row) => row.id === lineId),
+                ),
+              );
+              setConfirmDelete(true);
+            }
+            return false;
+          }
+          failed = true;
           setSaveError(message);
           setStatus("error");
           dirty.current = true;
@@ -344,8 +390,13 @@ export function ReportEditor({
       if (!force && !failed && dirty.current && !autosaveBlocked()) scheduleSave();
     }
   }
+  async function leaveReady() {
+    const saved = await persist();
+    return saved || !dirty.current;
+  }
   const persistForUpdate = useRef(persist);
   persistForUpdate.current = persist;
+  leaveReadyRef.current = leaveReady;
   useEffect(() => onDraftFlush(() => persistForUpdate.current(true).then(() => undefined)), []);
 
   function patchLine(partial: Partial<WorkOrder>) {
@@ -387,7 +438,21 @@ export function ReportEditor({
     scheduleSave();
   }
 
+  function closeDelete() {
+    if (deleteBusy) return;
+    setConfirmDelete(false);
+    setTypedWor("");
+    setDeleteError("");
+  }
+
   function removeLine() {
+    const currentLine = latest.current.lines[indexRef.current];
+    if (currentLine && fieldLineIdsRef.current.has(currentLine.id)) {
+      setTypedWor("");
+      setDeleteError("");
+      setConfirmDelete(true);
+      return;
+    }
     setReport((current) => {
       const lines = current.lines.filter(
         (_, lineIndex) => lineIndex !== indexRef.current,
@@ -398,6 +463,72 @@ export function ReportEditor({
     setConfirmDelete(false);
     setPrompt(null);
     scheduleSave();
+  }
+
+  async function deleteFieldLine() {
+    const currentLine = latest.current.lines[indexRef.current];
+    if (!currentLine || deleteBusy) return;
+    const expected =
+      serverCopy.current.lines.find((row) => row.id === currentLine.id)?.wor ||
+      currentLine.wor;
+    if (typedWor !== expected) {
+      setDeleteError("Enter the exact work order number to confirm deletion.");
+      return;
+    }
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      const response = await fetch(
+        `/api/reports/${latest.current.id}/lines/${currentLine.id}`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmWor: typedWor }),
+        },
+      );
+      const body = (await readJsonResponse(response)) as {
+        error?: string;
+        updatedAt?: string;
+      };
+      if (!response.ok || !body.updatedAt)
+        throw new Error(body.error || "Could not delete this work order.");
+      const updatedAt = body.updatedAt;
+      const lineId = currentLine.id;
+      flushSync(() => {
+        setReport((current) => {
+          const lines = current.lines.filter((row) => row.id !== lineId);
+          const next = { ...current, lines, updatedAt };
+          latest.current = next;
+          return next;
+        });
+        setIndex((current) =>
+          Math.min(current, Math.max(latest.current.lines.length - 1, 0)),
+        );
+      });
+      serverCopy.current = {
+        ...structuredClone(serverCopy.current),
+        lines: serverCopy.current.lines.filter((row) => row.id !== lineId),
+        updatedAt,
+      };
+      setFieldLineIds((current) => {
+        const next = new Set(current);
+        next.delete(lineId);
+        return next;
+      });
+      setConfirmDelete(false);
+      setTypedWor("");
+      setDeleteError("");
+      if (!dirty.current) clearLocalDraft(latest.current.id);
+      toast.success("Work order deleted. Its field history was kept.");
+    } catch (cause) {
+      setDeleteError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not delete this work order.",
+      );
+    } finally {
+      setDeleteBusy(false);
+    }
   }
 
   async function saveAndNext() {
@@ -667,7 +798,7 @@ export function ReportEditor({
               <Download aria-hidden="true" />
               Export workbook
             </Button>
-            <MonthActions quiet beforeLeave={persist} />
+            <MonthActions quiet beforeLeave={leaveReady} />
           </div>
         </div>
         {months.length > 1 && (
@@ -696,7 +827,7 @@ export function ReportEditor({
                 const next = selectedMonth;
                 setOpeningMonth(true);
                 void (async () => {
-                  if (!(await persist())) {
+                  if (!(await leaveReady())) {
                     setOpeningMonth(false);
                     return;
                   }
@@ -1193,7 +1324,11 @@ export function ReportEditor({
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => setConfirmDelete(true)}
+                  onClick={() => {
+                    setTypedWor("");
+                    setDeleteError("");
+                    setConfirmDelete(true);
+                  }}
                 >
                   Remove
                 </Button>
@@ -1303,27 +1438,102 @@ export function ReportEditor({
         </div>
       </div>
 
-      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove this work order?</DialogTitle>
-            <DialogDescription>
-              It is dropped from this month. Customers, sites, and technicians
-              you already saved stay in the lists.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setConfirmDelete(false)}
-            >
-              Keep it
-            </Button>
-            <Button type="button" variant="destructive" onClick={removeLine}>
-              Remove
-            </Button>
-          </DialogFooter>
+      <Dialog
+        open={confirmDelete}
+        onOpenChange={(open) => {
+          if (!open) closeDelete();
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          {line && fieldLineIds.has(line.id) ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Delete this field work order?</DialogTitle>
+                <DialogDescription>
+                  This work order was entered through Field entry. Deleting it
+                  removes it from this month and from Field service. The signed
+                  history and audit record are kept. Only an administrator can
+                  do this.
+                </DialogDescription>
+              </DialogHeader>
+              {line.wor ? (
+                <div className="grid gap-2">
+                  <p className="text-sm">
+                    Type the work order number{" "}
+                    <span className="font-mono font-semibold text-foreground">
+                      {serverCopy.current.lines.find((row) => row.id === line.id)
+                        ?.wor || line.wor}
+                    </span>{" "}
+                    exactly to confirm.
+                  </p>
+                  <Label htmlFor="confirm-work-order-number">
+                    Work order number
+                  </Label>
+                  <Input
+                    id="confirm-work-order-number"
+                    autoComplete="off"
+                    value={typedWor}
+                    disabled={deleteBusy}
+                    onChange={(event) => setTypedWor(event.target.value)}
+                  />
+                </div>
+              ) : (
+                <p className="text-sm">
+                  This field work order has no number yet. Open it in Field
+                  service after it syncs, then delete it here if you still need
+                  to.
+                </p>
+              )}
+              {deleteError && (
+                <p role="alert" className="text-sm text-destructive">
+                  {deleteError}
+                </p>
+              )}
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={deleteBusy}
+                  onClick={closeDelete}
+                >
+                  Keep it
+                </Button>
+                {line.wor ? (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={
+                      deleteBusy ||
+                      typedWor !==
+                        (serverCopy.current.lines.find((row) => row.id === line.id)
+                          ?.wor || line.wor)
+                    }
+                    onClick={() => void deleteFieldLine()}
+                  >
+                    {deleteBusy ? "Deleting…" : "Delete work order"}
+                  </Button>
+                ) : null}
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Remove this work order?</DialogTitle>
+                <DialogDescription>
+                  It is dropped from this month. Customers, sites, and technicians
+                  you already saved stay in the lists.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={closeDelete}>
+                  Keep it
+                </Button>
+                <Button type="button" variant="destructive" onClick={removeLine}>
+                  Remove
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

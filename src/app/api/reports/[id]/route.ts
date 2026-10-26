@@ -2,6 +2,7 @@ import {legacyAccess} from "@/lib/access";
 import { HttpError, jsonBody } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { deleteReport, getReport, saveReportChecked } from "@/lib/db";
+import { fieldJobIds } from "@/lib/field-jobs";
 import type { Report } from "@/lib/model";
 import { logEvent } from "@/lib/events";
 
@@ -16,7 +17,11 @@ export async function GET(
   const { id } = await context.params;
   const report = await getReport(id);
   if (!report) return NextResponse.json({ error: "Report not found." }, { status: 404 });
-  return NextResponse.json({ report });
+  const tracked = new Set(await fieldJobIds());
+  return NextResponse.json({
+    report,
+    fieldLineIds: report.lines.map((line) => line.id).filter((id) => tracked.has(id)),
+  });
 }
 
 export async function PUT(

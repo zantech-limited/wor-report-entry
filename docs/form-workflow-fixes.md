@@ -6,7 +6,7 @@ Use the supplied image as the customer form background. Share coordinates betwee
 
 Automatically synchronize unsigned device drafts after a short idle interval and reconnect. Keep encrypted offline recovery, revision checks and explicit review before submitting/emailing signed work. Preserve in-flight edits and never overwrite a conflict automatically.
 
-Allocate short WRETO-prefixed numbers transactionally. Keep historical numbers and signed snapshots intact. Handle empty/non-JSON responses without losing status codes. Investigate production storage errors and verify SQLite backup restore in isolated local storage; Vercel requires durable remote storage.
+Allocate OWOR numbers on the server (five digits, and wider if the sequence grows). Existing numbers, including earlier WRETO values, stay as stored. Offline drafts show Pending until a number is assigned. Keep signed snapshots intact. Handle empty/non-JSON responses without losing status codes. Investigate production storage errors and verify SQLite backup restore in isolated local storage; Vercel requires durable remote storage.
 
 Validate with type/lint checks, existing field workflow/offline/backup/PDF checks, targeted regressions and visual inspection of the template.
 
