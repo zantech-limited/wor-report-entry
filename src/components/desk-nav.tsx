@@ -44,7 +44,7 @@ export function DeskNav({role,accounts=false}:{role?:string;accounts?:boolean}) 
             className="size-11 shrink-0"
           />
           Service desk
-          <span className="rounded-full border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">v{packageInfo.version}</span>
+          <span className="rounded-full border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">v{packageInfo.version}</span>
         </p>
         <nav
           aria-label="Desk"

@@ -9,15 +9,20 @@ export function AccountForm({ setup = false }: { setup?: boolean }) {
     [name, setName] = useState(""),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
+    [showPassword, setShowPassword] = useState(false),
     [token, setToken] = useState(""),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
     [messageRole, setMessageRole] = useState<"status" | "alert">("status");
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    if (params.get("token")) {
+    const resetToken = params.get("token");
+    if (resetToken) {
       setMode("reset");
-      setToken(params.get("token")!);
+      setToken(resetToken);
+      params.delete("token");
+      const next = `${location.pathname}${params.size ? `?${params}` : ""}${location.hash}`;
+      history.replaceState(null, "", next);
     }
     if (!setup)
       void deskApi<{ ready: boolean }>("/api/setup")
@@ -140,20 +145,43 @@ export function AccountForm({ setup = false }: { setup?: boolean }) {
           </label>
         )}
         {mode !== "forgot" && (
-          <label className="grid gap-1 text-sm">
-            Password
-            <Input
-              type="password"
-              required
-              minLength={mode === "signin" ? 1 : 12}
-              maxLength={128}
-              autoComplete={
-                mode === "signin" ? "current-password" : "new-password"
-              }
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
+          <div className="grid gap-1 text-sm">
+            <label htmlFor="account-password">Password</label>
+            <div className="flex gap-2">
+              <Input
+                id="account-password"
+                type={showPassword ? "text" : "password"}
+                required
+                minLength={mode === "signin" ? 1 : 12}
+                maxLength={128}
+                autoComplete={
+                  mode === "signin" ? "current-password" : "new-password"
+                }
+                aria-invalid={messageRole === "alert" && !!message}
+                aria-describedby={
+                  message
+                    ? "account-password-rules account-form-message"
+                    : "account-password-rules"
+                }
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                className="min-h-11 shrink-0 rounded-lg border px-3 text-sm"
+                aria-pressed={showPassword}
+                aria-controls="account-password"
+                onClick={() => setShowPassword((shown) => !shown)}
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+            <p id="account-password-rules" className="text-xs text-muted-foreground">
+              {mode === "signin"
+                ? "Use the password for this account."
+                : "Use 12 to 128 characters."}
+            </p>
+          </div>
         )}
         {setup && (
           <label className="grid gap-1 text-sm">
@@ -180,7 +208,15 @@ export function AccountForm({ setup = false }: { setup?: boolean }) {
         </Button>
       </form>
       {message && (
-        <p role={messageRole} className="mt-4 rounded-lg border p-3 text-sm">
+        <p
+          id="account-form-message"
+          role={messageRole}
+          className={
+            messageRole === "alert"
+              ? "mt-4 rounded-lg border border-destructive p-3 text-sm text-destructive"
+              : "mt-4 rounded-lg border p-3 text-sm"
+          }
+        >
           {message}
         </p>
       )}
@@ -191,7 +227,9 @@ export function AccountForm({ setup = false }: { setup?: boolean }) {
             className="inline-flex min-h-11 items-center underline"
             onClick={() => {
               setMode(mode === "register" ? "signin" : "register");
+              setShowPassword(false);
               setMessage("");
+              setMessageRole("status");
             }}
           >
             {mode === "register" ? "Already registered? Sign in" : "Register"}
@@ -201,7 +239,9 @@ export function AccountForm({ setup = false }: { setup?: boolean }) {
             className="inline-flex min-h-11 items-center underline"
             onClick={() => {
               setMode(mode === "forgot" ? "signin" : "forgot");
+              setShowPassword(false);
               setMessage("");
+              setMessageRole("status");
             }}
           >
             {mode === "forgot" ? "Back to sign in" : "Forgot password?"}

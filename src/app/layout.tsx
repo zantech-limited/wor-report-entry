@@ -68,10 +68,13 @@ export default async function RootLayout({
   }
   return (
     <html lang="en">
+      <head>
+        <meta name="desk-revision" content={revision} />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Providers>
+        <Providers nonce={requestHeaders.get("x-nonce") || undefined}>
           <a
             href="#main-content"
             className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-background focus:px-4 focus:py-3 focus:shadow"
@@ -90,7 +93,6 @@ export default async function RootLayout({
           </main>
           <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 border-t px-4 py-5 text-xs text-muted-foreground sm:px-6">
             <p>© {new Date().getFullYear()} Zantech Limited · {revision}</p>
-            <meta name="desk-revision" content={revision} />
           </footer>
         </Providers>
       </body>

@@ -89,7 +89,7 @@ export function SignaturePad({
   );
   const clear = (
     <button
-      className="justify-self-start text-sm underline"
+      className="inline-flex min-h-11 items-center justify-self-start rounded-lg px-2 text-sm underline"
       type="button"
       onClick={() => {
         drawing.current = false;
