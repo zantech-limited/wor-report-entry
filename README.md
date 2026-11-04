@@ -178,3 +178,7 @@ Run `node --import tsx scripts/check-backup-upload.ts` with an isolated `DATA_DI
 ## Version 0.5.3
 
 Patch release for the desk review. Pages send a nonce script policy, hide the framework server banner, and keep HSTS on HTTPS including subdomains of this host. Password-reset tokens are removed from the address bar after the page reads them. Sign-in can show the password, states the length rule, and ties errors to the form. Phone signature buttons, a larger dialog close control, and a labeled recovery-file passphrase replace the browser prompt. None of this changes signed content, signature strokes, snapshot hashing, or stored signature records. `scripts/check-signature-contract.ts` locks the current canonical and legacy hashes. `scripts/check-content-security.ts` checks the page policy.
+
+## Version 0.5.4
+
+Signed-in accounts get a Log out button in the desktop navigation and in the phone menu. It asks the server to delete the session, then opens the sign-in page. The signed-content hash is unchanged.

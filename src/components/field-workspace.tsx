@@ -34,6 +34,7 @@ import { DraftConflict } from "./draft-conflict";
 import { FieldTeam } from "./field-team";
 import { DeskDebugPanel } from "./desk-debug-panel";
 import { onDraftFlush } from "@/lib/app-update";
+import { endDeskSession } from "@/lib/end-desk-session";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 type Identity = { actor: Actor; database: string };
@@ -676,9 +677,7 @@ export function FieldWorkspace() {
       return;
     if (drafts.length) await downloadRecovery(context, key, current.current);
     try {
-      await deskApi("/api/auth/sign-out", {});
-      localStorage.removeItem("zantech-device-identity");
-      location.assign("/login");
+      await endDeskSession();
     } catch (error) {
       setMessage((error as Error).message);
     }
@@ -982,7 +981,7 @@ export function FieldWorkspace() {
             Lock
           </Button>
           <Button variant="outline" onClick={() => void signOut()}>
-            Sign out
+            Log out
           </Button>
         </div>
       </header>
