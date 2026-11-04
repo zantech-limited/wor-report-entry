@@ -9,6 +9,7 @@ const tracedFiles = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  poweredByHeader: false,
   serverExternalPackages: ["better-sqlite3"],
   // `*` matches every App Router page and route, including `/`.
   // The workbook path is built from process.cwd(), so the tracer does not follow it.

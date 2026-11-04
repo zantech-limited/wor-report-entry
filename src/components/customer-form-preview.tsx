@@ -255,7 +255,7 @@ export function CustomerFormPreview({
                 }}
               >
                 {value || (
-                  <span className="text-blue-700/60">{field.label}</span>
+                  <span className="text-blue-800">{field.label}</span>
                 )}
                 {onLayoutChange && (
                   <span
@@ -349,6 +349,30 @@ export function CustomerFormPreview({
           ))}
         </article>
       </div>
+      {onChange && (
+        <div className="mt-3 grid gap-2 sm:hidden">
+          <p className="text-sm text-muted-foreground">
+            The printed signature lines are small on a phone. These buttons open
+            the same signature fields.
+          </p>
+          <button
+            type="button"
+            className="min-h-11 rounded-lg border px-4 text-left text-sm"
+            onClick={() => setSign("technicianSignature")}
+          >
+            {job.technicianSignature
+              ? "Edit technician signature"
+              : "Add technician signature"}
+          </button>
+          <button
+            type="button"
+            className="min-h-11 rounded-lg border px-4 text-left text-sm"
+            onClick={() => setSign("signature")}
+          >
+            {job.signature ? "Edit customer signature" : "Add customer signature"}
+          </button>
+        </div>
+      )}
       <Dialog
         open={!!active}
         onOpenChange={(open) => !open && setActive(undefined)}

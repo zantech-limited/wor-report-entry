@@ -737,9 +737,10 @@ export function FieldJobEditor({
               onChange={(value) => change({ ...job, signature: value })}
             />
           )}
-          <label className="flex items-start gap-2 text-sm">
+          <label className="flex min-h-11 items-start gap-3 text-sm">
             <input
               type="checkbox"
+              className="mt-1 size-5 shrink-0"
               checked={reviewed}
               disabled={readOnly}
               onChange={(e) => setReviewed(e.target.checked)}
@@ -765,8 +766,16 @@ export function FieldJobEditor({
               </span>
             </label>
           )}
+          {!readOnly && !reviewed && (
+            <p id="sign-ready-hint" className="text-sm text-muted-foreground">
+              Confirm the review with the customer before marking this version
+              ready.
+            </p>
+          )}
           {!readOnly && (
             <Button
+              type="button"
+              aria-describedby={reviewed ? undefined : "sign-ready-hint"}
               onClick={() => void ready()}
               disabled={
                 signing ||

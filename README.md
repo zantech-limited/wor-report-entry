@@ -174,3 +174,11 @@ Verification commands: `node --import tsx scripts/check-accounts-field.ts` with 
 Version 0.5.1 accepts existing version-1 JSON backups through Admin using 1 MiB upload chunks, avoiding Vercel's per-request body limit. Uploaded pieces are private database staging records shared across function instances; the final restore validates the complete file and commits all workbook copies in one transaction. Repeated finalization does not create another set of copies. Existing data is preserved. Temporary uploads are excluded from portable backups, and expired staging records are removed when the next upload begins. Full account/signed-workflow backups retain the separate empty-database restore requirement.
 
 Run `node --import tsx scripts/check-backup-upload.ts` with an isolated `DATA_DIR` containing `.checks`; optionally set `LEGACY_BACKUP_FILE` to a private older backup. This checks large upload sizes, platform error messages, workbook bytes/content, owner isolation, finalization retries, rollback and staging exclusion.
+
+## Version 0.5.3
+
+Patch release for the desk review. Pages send a nonce script policy, hide the framework server banner, and keep HSTS on HTTPS including subdomains of this host. Password-reset tokens are removed from the address bar after the page reads them. Sign-in can show the password, states the length rule, and ties errors to the form. Phone signature buttons, a larger dialog close control, and a labeled recovery-file passphrase replace the browser prompt. None of this changes signed content, signature strokes, snapshot hashing, or stored signature records. `scripts/check-signature-contract.ts` locks the current canonical and legacy hashes. `scripts/check-content-security.ts` checks the page policy.
+
+## Version 0.5.4
+
+Signed-in accounts get a Log out button in the desktop navigation and in the phone menu. It asks the server to delete the session, then opens the sign-in page. The signed-content hash is unchanged.

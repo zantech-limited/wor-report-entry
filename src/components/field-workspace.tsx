@@ -34,6 +34,7 @@ import { DraftConflict } from "./draft-conflict";
 import { FieldTeam } from "./field-team";
 import { DeskDebugPanel } from "./desk-debug-panel";
 import { onDraftFlush } from "@/lib/app-update";
+import { endDeskSession } from "@/lib/end-desk-session";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 type Identity = { actor: Actor; database: string };
@@ -130,7 +131,10 @@ export function FieldWorkspace() {
     [pdfUrl, setPdfUrl] = useState<string>(),
     [localSaved, setLocalSaved] = useState(""),
     [uploadBusy, setUploadBusy] = useState(false),
-    [syncTick, setSyncTick] = useState(0);
+    [syncTick, setSyncTick] = useState(0),
+    [recoveryFile, setRecoveryFile] = useState<File>(),
+    [recoveryPass, setRecoveryPass] = useState(""),
+    [recoveryBusy, setRecoveryBusy] = useState(false);
   const unsaved = useRef(false);
   const uploading = useRef(false);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -673,9 +677,7 @@ export function FieldWorkspace() {
       return;
     if (drafts.length) await downloadRecovery(context, key, current.current);
     try {
-      await deskApi("/api/auth/sign-out", {});
-      localStorage.removeItem("zantech-device-identity");
-      location.assign("/login");
+      await endDeskSession();
     } catch (error) {
       setMessage((error as Error).message);
     }
@@ -775,7 +777,11 @@ export function FieldWorkspace() {
               value={pin}
               onChange={(e) => setPin(e.target.value)}
               autoComplete="current-password"
+              aria-describedby="device-passphrase-offline-hint"
             />
+            <span id="device-passphrase-offline-hint" className="text-xs text-muted-foreground">
+              At least 6 characters. This encrypts drafts on this device.
+            </span>
           </label>
           <Button type="submit" disabled={busy || pin.length < 6}>
             {busy ? "Unlocking…" : "Unlock device"}
@@ -817,7 +823,11 @@ export function FieldWorkspace() {
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
                 autoComplete="current-password"
+                aria-describedby="device-passphrase-hint"
               />
+              <span id="device-passphrase-hint" className="text-xs text-muted-foreground">
+                At least 6 characters. This encrypts drafts on this device.
+              </span>
             </label>
             <Button type="submit" disabled={busy || pin.length < 6}>
               {busy ? "Unlocking…" : "Unlock device"}
@@ -877,32 +887,82 @@ export function FieldWorkspace() {
           >
             Download device recovery
           </Button>
-          <label className="inline-flex cursor-pointer items-center rounded-lg border px-3 py-2 text-sm">
-            Import recovery
-            <input
-              type="file"
-              accept="application/json,.json"
-              className="sr-only"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file)
-                  void importRecovery(
-                    context,
-                    key!,
-                    file,
-                    prompt(
-                      "Enter the device passphrase used when this recovery file was downloaded.",
-                    ) || "",
-                  )
+          <div className="grid gap-2">
+            <label className="inline-flex min-h-11 cursor-pointer items-center rounded-lg border px-3 py-2 text-sm">
+              Choose recovery file
+              <input
+                type="file"
+                accept="application/json,.json"
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (!file) return;
+                  setRecoveryFile(file);
+                  setRecoveryPass("");
+                }}
+              />
+            </label>
+            {recoveryFile && (
+              <form
+                className="grid gap-2 rounded-lg border bg-card p-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!key || recoveryBusy) return;
+                  setRecoveryBusy(true);
+                  void importRecovery(context, key, recoveryFile, recoveryPass)
                     .then((count) => {
                       setMessage(`Recovered ${count} device drafts.`);
+                      setRecoveryFile(undefined);
+                      setRecoveryPass("");
                       void refresh();
                     })
-                    .catch((error) => setMessage(error.message));
-              }}
-            />
-          </label>
+                    .catch((error: unknown) =>
+                      setMessage(
+                        error instanceof Error
+                          ? error.message
+                          : "The recovery file could not be imported.",
+                      ),
+                    )
+                    .finally(() => setRecoveryBusy(false));
+                }}
+              >
+                <p className="text-sm font-medium">
+                  Import {recoveryFile.name}
+                </p>
+                <label className="grid gap-1 text-sm" htmlFor="recovery-passphrase">
+                  Device passphrase for this file
+                  <Input
+                    id="recovery-passphrase"
+                    type="password"
+                    required
+                    minLength={6}
+                    autoComplete="off"
+                    value={recoveryPass}
+                    onChange={(event) => setRecoveryPass(event.target.value)}
+                  />
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Use the passphrase from the device that downloaded this file.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="submit" disabled={recoveryBusy || recoveryPass.length < 6}>
+                    {recoveryBusy ? "Importing…" : "Import recovery"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setRecoveryFile(undefined);
+                      setRecoveryPass("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            )}
+          </div>
           <Button
             variant="outline"
             onClick={() => {
@@ -921,7 +981,7 @@ export function FieldWorkspace() {
             Lock
           </Button>
           <Button variant="outline" onClick={() => void signOut()}>
-            Sign out
+            Log out
           </Button>
         </div>
       </header>
@@ -969,7 +1029,9 @@ export function FieldWorkspace() {
         ].map(([value, label]) => (
           <Button
             key={value}
+            type="button"
             variant={tab === value ? "default" : "outline"}
+            aria-current={tab === value ? "page" : undefined}
             onClick={() => setTab(value)}
           >
             {label}
@@ -979,7 +1041,11 @@ export function FieldWorkspace() {
       {message && (
         <p
           role={alertMessage.test(message) ? "alert" : "status"}
-          className="rounded-lg border bg-card p-3 text-sm"
+          className={
+            alertMessage.test(message)
+              ? "rounded-lg border border-destructive bg-card p-3 text-sm text-destructive"
+              : "rounded-lg border bg-card p-3 text-sm"
+          }
         >
           {message}
         </p>

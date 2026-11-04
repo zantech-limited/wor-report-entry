@@ -10,6 +10,11 @@ import {
 } from "@/lib/field-model";
 import { customerPdf } from "@/lib/customer-pdf";
 import { contentDisposition, workOrderPdfFilename } from "@/lib/pdf-name";
+import {
+  contentSecurityPolicy,
+  createNonce,
+  requestIsHttps,
+} from "@/lib/content-security";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -114,8 +119,12 @@ function pdfResponse(
         "Content-Disposition": contentDisposition(filename, download),
         "Cache-Control": "private, no-store",
         "X-Frame-Options": "SAMEORIGIN",
-        "Content-Security-Policy":
-          "frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'",
+        "Content-Security-Policy": contentSecurityPolicy({
+          nonce: createNonce(),
+          https: requestIsHttps(request),
+          allowFrame: true,
+          development: process.env.NODE_ENV === "development",
+        }),
       },
     });
   });
